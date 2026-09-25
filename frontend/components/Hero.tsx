@@ -2,8 +2,6 @@
 
 import { MessageKey, useI18n } from "@/lib/i18n";
 
-const FEATURES = ["🔎", "🏁", "🎯", "🗺️", "📊", "🔄"];
-
 export default function Hero() {
   const { t } = useI18n();
   return (
@@ -11,11 +9,8 @@ export default function Hero() {
       <h1 className="hero-title">{t("hero.title")}</h1>
       <p className="hero-lead">{t("hero.lead")}</p>
       <ul className="hero-features">
-        {FEATURES.map((ico, i) => (
-          <li key={i}>
-            <span aria-hidden>{ico}</span>
-            {t(`hero.f${i + 1}t` as MessageKey)}
-          </li>
+        {[1, 2, 3, 4, 5, 6].map((n) => (
+          <li key={n}>{t(`hero.f${n}t` as MessageKey)}</li>
         ))}
       </ul>
     </section>

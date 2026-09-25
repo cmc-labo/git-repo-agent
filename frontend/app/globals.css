@@ -324,7 +324,7 @@ body { min-height: 100vh; display: flex; flex-direction: column; }
 .hero-lead { color: var(--muted); margin: 0 0 12px; }
 .hero-features { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
 .hero-features li {
-  display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 600; color: var(--green-dark);
+  display: inline-flex; align-items: center; font-size: 12px; font-weight: 600; color: var(--green-dark);
   background: var(--green-light); border: 1px solid var(--green-mid); border-radius: 999px; padding: 2px 10px;
 }
 
@@ -332,34 +332,24 @@ body { min-height: 100vh; display: flex; flex-direction: column; }
 .home { position: relative; }
 .geo-bg { position: fixed; inset: 0; z-index: -1; background: #fff; overflow: hidden; pointer-events: none; }
 .geo-lattice {
-  position: absolute; inset: -200px;
+  position: absolute; inset: 0;
   background-image:
-    repeating-linear-gradient(60deg, rgba(47, 158, 110, 0.07) 0 1px, transparent 1px 64px),
-    repeating-linear-gradient(-60deg, rgba(47, 158, 110, 0.07) 0 1px, transparent 1px 64px),
-    repeating-linear-gradient(0deg, rgba(90, 100, 110, 0.035) 0 1px, transparent 1px 55.4px);
-  animation: geo-drift 60s linear infinite;
+    repeating-linear-gradient(60deg, rgba(47, 158, 110, 0.06) 0 1px, transparent 1px 64px),
+    repeating-linear-gradient(-60deg, rgba(47, 158, 110, 0.06) 0 1px, transparent 1px 64px);
 }
-@keyframes geo-drift { to { transform: translate(128px, 110.8px); } }
 .geo-svg { position: absolute; inset: 0; }
-.geo-shape path { fill: none; stroke: var(--green); stroke-width: 1.2; opacity: 0.28; }
-.geo-shape.geo-faint path { opacity: 0.12; }
-.geo-shape { transform-box: fill-box; transform-origin: center; }
-.geo-float-a { animation: geo-float-a 38s ease-in-out infinite; }
-.geo-float-b { animation: geo-float-b 46s ease-in-out infinite; }
-.geo-float-c { animation: geo-float-c 54s ease-in-out infinite; }
-@keyframes geo-float-a { 0%, 100% { transform: translate(0, 0) rotate(0deg); } 50% { transform: translate(30px, 24px) rotate(60deg); } }
-@keyframes geo-float-b { 0%, 100% { transform: translate(0, 0) rotate(0deg); } 50% { transform: translate(-26px, 32px) rotate(-90deg); } }
-@keyframes geo-float-c { 0%, 100% { transform: translate(0, 0) rotate(0deg); } 50% { transform: translate(22px, -28px) rotate(45deg); } }
+/* 線が走る: 破線の長さを線より長くし、オフセットを動かして描画→消去を繰り返す */
 .geo-draw {
-  stroke: var(--green); stroke-width: 1; opacity: 0.18; stroke-dasharray: 2400; stroke-dashoffset: 2400;
+  stroke: var(--green); stroke-width: 1; opacity: 0.2; stroke-dasharray: 2400; stroke-dashoffset: 2400;
   animation: geo-draw 16s ease-in-out infinite;
 }
 .geo-draw-2 { animation-delay: -5s; animation-duration: 19s; }
-.geo-draw-3 { animation-delay: -11s; animation-duration: 23s; opacity: 0.1; }
+.geo-draw-3 { animation-delay: -11s; animation-duration: 23s; opacity: 0.12; }
+.geo-draw-4 { animation-delay: -8s; animation-duration: 21s; opacity: 0.14; }
+.geo-draw-5 { animation-delay: -14s; animation-duration: 17s; }
 @keyframes geo-draw { 0% { stroke-dashoffset: 2400; } 50% { stroke-dashoffset: 0; } 100% { stroke-dashoffset: -2400; } }
 @media (prefers-reduced-motion: reduce) {
-  .geo-lattice, .geo-shape, .geo-draw { animation: none; }
-  .geo-draw { stroke-dashoffset: 0; }
+  .geo-draw { animation: none; stroke-dashoffset: 0; }
 }
 .home .card { background: rgba(255, 255, 255, 0.94); }
 .tag.demo { background: #fff4e0; color: #8a5a10; border-color: #f1dfb2; font-weight: 700; }

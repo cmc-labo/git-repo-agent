@@ -33,8 +33,8 @@ const ja: Messages = {
   "err.repo_inaccessible": "リポジトリにアクセスできません。private の場合は read 権限のあるトークンを指定してください",
   "err.repo_exists": "このリポジトリは登録済みです",
 
-  "hero.title": "次に何を作るべきか、いつでもわかる",
-  "hero.lead": "GitHub リポジトリを観測し、Gemini で競合を分析して、次にやるべきことを提示。push のたびに自動で更新します。",
+  "hero.title": "次の開発タスクが自動でいつでもわかる",
+  "hero.lead": "GitHub リポジトリを観測し、vertex-aiが競合を分析して、次にやるべきことを提示。push のたびに自動で更新します。",
   "hero.f1t": "リポジトリ理解",
   "hero.f2t": "競合分析",
   "hero.f3t": "優先順位付け",
