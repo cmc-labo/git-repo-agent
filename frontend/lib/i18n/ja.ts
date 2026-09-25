@@ -46,6 +46,7 @@ const ja: Messages = {
   "home.demoLabel": "DEMO",
 
   "err.captcha_failed": "ボット判定に失敗しました。もう一度確認を完了してから登録してください。",
+  "err.repo_limit_reached": "登録できるリポジトリは最大 {max} 個までです（デモを除く）。追加するには、既存のリポジトリを「設定」タブから登録解除してください。",
   "err.demo_readonly": "デモ用のリポジトリは閲覧専用です。編集するにはご自身のリポジトリを登録してください。",
   "err.missing_owner": "このブラウザを識別できませんでした。サイトデータの保存を許可して再読み込みしてください。",
   "repo.demoReadonly": "これは閲覧専用のデモ分析です。再分析やタスク管理を行うには、ご自身のリポジトリを登録してください。",
@@ -60,6 +61,7 @@ const ja: Messages = {
   "home.analysisLanguage": "分析の出力言語: {lang}",
   "home.privacyNote": "登録したリポジトリはこのブラウザに紐づきます。別のブラウザ（他の人）からは見えず、操作もできません。※ サイトデータを削除すると、ご自身もアクセスできなくなります。",
   "home.verifying": "ボット判定中…",
+  "home.repoCount": "{n} / {max} 件登録済み",
   "home.watching": "観測中のリポジトリ",
   "home.empty": "まだリポジトリがありません。上のフォームから登録してください。",
   "home.noDescription": "(説明なし)",

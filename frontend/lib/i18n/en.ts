@@ -45,6 +45,7 @@ const en = {
   "home.demoLabel": "DEMO",
 
   "err.captcha_failed": "Bot verification failed. Please complete the check again and retry.",
+  "err.repo_limit_reached": "You can register up to {max} repositories (excluding the demo). Unregister one from its Settings tab to add another.",
   "err.demo_readonly": "The demo repository is read-only. Register your own repository to edit it.",
   "err.missing_owner": "Could not identify this browser. Please enable site storage and reload.",
   "repo.demoReadonly": "This is a read-only demo analysis. Register your own repository to re-analyze and manage tasks.",
@@ -59,6 +60,7 @@ const en = {
   "home.analysisLanguage": "Analysis language: {lang}",
   "home.privacyNote": "Repositories you register are tied to this browser: they are not visible to, and cannot be operated from, other browsers (other people). Clearing this site's data also removes your own access.",
   "home.verifying": "Verifying you are human…",
+  "home.repoCount": "{n} / {max} registered",
   "home.watching": "Watched repositories",
   "home.empty": "No repositories yet. Register one with the form above.",
   "home.noDescription": "(no description)",

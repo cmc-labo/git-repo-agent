@@ -116,6 +116,7 @@ def get_config():
         "model": settings.gemini_model,
         "backend": "vertex-ai" if settings.use_vertex else ("gemini-api" if settings.gemini_api_key else "demo"),
         "db": "turso" if settings.turso_url else "sqlite",
+        "max_repos_per_owner": settings.max_repos_per_owner,
     }
 
 
@@ -156,6 +157,9 @@ def list_repos(okey: str | None = Depends(owner_key)):
 def create_repo(body: RepoCreate, bg: BackgroundTasks, okey: str | None = Depends(owner_key)):
     if not okey:
         raise HTTPException(400, "missing_owner")
+    owned = db.query_one("SELECT COUNT(*) AS n FROM repos WHERE owner_key=? AND COALESCE(is_demo, 0)=0", (okey,))
+    if (owned or {}).get("n", 0) >= settings.max_repos_per_owner:
+        raise HTTPException(409, "repo_limit_reached")
     # GitHub / Gemini を呼ぶ前にボット判定する
     if not turnstile.verify(body.turnstile_token):
         raise HTTPException(403, "captcha_failed")

@@ -38,6 +38,8 @@ class Settings:
     competitor_refresh_days: int = field(default_factory=lambda: int(os.getenv("COMPETITOR_REFRESH_DAYS", "7")))
     # 同時開発者数 (ロードマップのスケジューリングに使う並列レーン数)
     roadmap_lanes: int = field(default_factory=lambda: int(os.getenv("ROADMAP_LANES", "2")))
+    # 1 ブラウザ (所有者) が登録できるリポジトリ数の上限 (デモは含まない)
+    max_repos_per_owner: int = field(default_factory=lambda: int(os.getenv("MAX_REPOS_PER_OWNER", "5")))
     # Cloudflare Turnstile. 設定するとリポジトリ登録時にボット判定を必須にする (未設定なら検証しない)
     turnstile_secret: str = field(default_factory=lambda: os.getenv("TURNSTILE_SECRET_KEY", ""))
     # 初回起動時に一度だけ登録するデモ用リポジトリ (空にすると登録しない)

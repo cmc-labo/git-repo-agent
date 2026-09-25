@@ -244,3 +244,17 @@ def test_register_requires_turnstile(monkeypatch):
     assert calls == [{"secret": "secret", "response": "bad"}]  # トークンなしは Cloudflare に問い合わせない
     # 正しいトークンなら検証を通過して GitHub 側の処理へ進む (ここでは不正な参照で止まる)
     assert c.post("/api/repos", json={"repo": "not-a-ref", "turnstile_token": "good-token"}, headers=h).json()["detail"] == "invalid_repo_ref"
+
+
+def test_repo_limit_per_owner():
+    from app.config import settings
+    owner = "cccccccc-1111-2222-3333-444444444444"
+    for i in range(settings.max_repos_per_owner):
+        _repo(f"rp_lim_{i}", f"acme/lim{i}", owner=owner)
+    c = TestClient(app)
+    h = {"X-Owner-Id": owner}
+    assert c.post("/api/repos", json={"repo": "acme/one-more"}, headers=h).json()["detail"] == "repo_limit_reached"
+    assert c.get("/api/config").json()["max_repos_per_owner"] == settings.max_repos_per_owner
+    # 1 つ削除すれば再び登録処理に進める (ここでは不正な参照で止まる)
+    assert c.delete("/api/repos/rp_lim_0", headers=h).status_code == 204
+    assert c.post("/api/repos", json={"repo": "not-a-ref"}, headers=h).json()["detail"] == "invalid_repo_ref"

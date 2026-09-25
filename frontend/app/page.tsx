@@ -25,6 +25,12 @@ export default function Home() {
   // ボット対策: Turnstile を通過したトークン (1 回使い切り). 送信後は resetKey で再検証する
   const [captcha, setCaptcha] = useState<string | null>(null);
   const [captchaReset, setCaptchaReset] = useState(0);
+  // 1 ブラウザあたりの登録上限 (デモは含まない). サーバーでも同じ上限を強制している
+  const [maxRepos, setMaxRepos] = useState(5);
+  useEffect(() => {
+    api.config().then((c) => c.max_repos_per_owner && setMaxRepos(c.max_repos_per_owner)).catch(() => {});
+  }, []);
+  const ownCount = repos?.filter((r) => r.is_owner && !r.is_demo).length ?? 0;
 
   const load = useCallback(() => {
     api.repos().then(setRepos).catch((e) => setError(String(e.message || e)));
@@ -39,6 +45,10 @@ export default function Home() {
   async function submit(e: FormEvent) {
     e.preventDefault();
     if (!repoInput.trim() || !captcha) return;
+    if (ownCount >= maxRepos) {
+      setError(t("err.repo_limit_reached", { max: maxRepos }));
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -46,7 +56,7 @@ export default function Home() {
       track("register_repository", { private: !!token.trim(), language: lang || "en" });
       router.push(`/repos/${r.id}`);
     } catch (err) {
-      setError(errorText(err, t));
+      setError(errorText(err, t, { max: maxRepos }));
       setBusy(false);
       setCaptchaReset((n) => n + 1); // トークンは使用済みなので取り直す
     }
@@ -91,7 +101,10 @@ export default function Home() {
         </form>
       </div>
 
-      <h2 className="section">{t("home.watching")}</h2>
+      <h2 className="section">
+        {t("home.watching")}
+        <span className="faint small" style={{ fontWeight: 400 }}>{t("home.repoCount", { n: ownCount, max: maxRepos })}</span>
+      </h2>
       {repos?.some((r) => r.is_demo) && <p className="muted small" style={{ marginTop: -6 }}>{t("hero.demoHint")}</p>}
       {repos === null ? (
         <div className="muted"><span className="spinner" /> {t("common.loading")}</div>

@@ -162,6 +162,7 @@ export interface AppConfig {
   model: string;
   backend: string;
   db: string;
+  max_repos_per_owner: number;
 }
 
 // ログインの代わりに、ブラウザごとにランダムな ID を発行してリポジトリの所有者を区別する
