@@ -20,6 +20,10 @@ Built for the [Google Cloud Japan AI Hackathon vol.5](https://zenn.dev/hackathon
 | Private repositories | Fine-grained PAT, encrypted at rest |
 | Multilingual | 130+ UI languages. Users pick a language on the first visit, and the agent writes its analysis in that language (see below) |
 
+A demo repository ([antirez/kilo](https://github.com/antirez/kilo)) is registered and analyzed automatically on first startup, so visitors can see a finished analysis right away.
+- It carries a **DEMO** label, is always listed after user-registered repositories, and cannot be unregistered.
+- It is seeded only once. Configure it with `DEMO_REPO` / `DEMO_REPO_LANGUAGE`, or set `DEMO_REPO=` to disable it.
+
 Agent rules:
 - A status changed by a human is never overridden by the agent.
 - Updates that arrive during an analysis are coalesced into one follow-up run (debounce).

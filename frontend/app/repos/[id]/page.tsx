@@ -126,7 +126,10 @@ export default function RepoPage() {
     <div className="shell">
       <nav className="sidebar">
         <div className="proj">
-          <div className="name">{repo.full_name}</div>
+          <div className="name">
+            {repo.is_demo && <span className="tag demo" style={{ marginInlineEnd: 6 }}>{t("home.demoLabel")}</span>}
+            {repo.full_name}
+          </div>
           <div className="sub">{repo.is_private ? `🔒 ${t("common.private")}` : t("common.public")} · {repo.default_branch}</div>
         </div>
         {TABS.map((x) => (
@@ -141,6 +144,7 @@ export default function RepoPage() {
         <div className="page-head">
           <h1>{t(`tab.${tab}`)}</h1>
           <RepoStatus status={repo.status} />
+          {repo.is_demo && <span className="tag demo">{t("home.demoLabel")}</span>}
           {repo.pending_reanalysis ? <span className="tag">{t("repo.pending")}</span> : null}
           <span className="spacer" />
           <span className="small muted">

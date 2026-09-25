@@ -38,6 +38,9 @@ class Settings:
     competitor_refresh_days: int = field(default_factory=lambda: int(os.getenv("COMPETITOR_REFRESH_DAYS", "7")))
     # 同時開発者数 (ロードマップのスケジューリングに使う並列レーン数)
     roadmap_lanes: int = field(default_factory=lambda: int(os.getenv("ROADMAP_LANES", "2")))
+    # 初回起動時に一度だけ登録するデモ用リポジトリ (空にすると登録しない)
+    demo_repo: str = field(default_factory=lambda: os.getenv("DEMO_REPO", "antirez/kilo"))
+    demo_repo_language: str = field(default_factory=lambda: os.getenv("DEMO_REPO_LANGUAGE", "en"))
 
     @property
     def gemini_available(self) -> bool:

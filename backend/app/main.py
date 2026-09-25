@@ -5,6 +5,7 @@ import hmac
 import json
 import logging
 import re
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 
@@ -31,6 +32,8 @@ LANG_PATTERN = r"^[a-z]{2,3}(-[A-Za-z0-9]{2,8}){0,2}$"
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     db.init_db()
+    # GitHub API を呼ぶので起動をブロックしないよう別スレッドで
+    threading.Thread(target=seed_demo_repo, daemon=True).start()
     yield
 
 
@@ -54,6 +57,7 @@ def _public_repo(r: dict, with_secret: bool = False) -> dict:
     out = {k: v for k, v in r.items() if k not in ("token_enc", "webhook_secret")}
     out["has_token"] = bool(r.get("token_enc"))
     out["is_private"] = bool(r.get("is_private"))
+    out["is_demo"] = bool(r.get("is_demo"))
     if with_secret:
         out["webhook_url"] = settings.public_base_url.rstrip("/") + "/api/webhooks/github"
         out["webhook_secret"] = r["webhook_secret"]
@@ -94,7 +98,8 @@ class RepoPatch(BaseModel):
 
 @app.get("/api/repos")
 def list_repos():
-    repos = db.query("SELECT * FROM repos ORDER BY created_at DESC")
+    # ユーザーが登録したものを新しい順に、デモは最後尾
+    repos = db.query("SELECT * FROM repos ORDER BY COALESCE(is_demo, 0) ASC, created_at DESC")
     stats = {
         r["repo_id"]: r for r in db.query(
             "SELECT repo_id, COUNT(*) AS total, SUM(CASE WHEN status='done' THEN 1 ELSE 0 END) AS done, "
@@ -122,21 +127,50 @@ def create_repo(body: RepoCreate, bg: BackgroundTasks):
         if e.status in (401, 403, 404):
             raise HTTPException(400, "repo_inaccessible") from e
         raise HTTPException(502, str(e)) from e
-    full = meta["full_name"]
-    if db.query_one("SELECT id FROM repos WHERE full_name=?", (full,)):
+    if db.query_one("SELECT id FROM repos WHERE full_name=?", (meta["full_name"],)):
         raise HTTPException(409, "repo_exists")
+    rid = _register(meta, token, body.language, is_demo=False)
+    if request_analysis(rid):
+        bg.add_task(run_analysis, rid, "initial", True)
+    return _public_repo(_repo_or_404(rid), with_secret=True)
+
+
+def _register(meta: dict, token: str | None, language: str, is_demo: bool) -> str:
     rid = new_id("rp")
     ts = now_iso()
     db.execute(
         "INSERT INTO repos (id, owner, name, full_name, description, html_url, is_private, default_branch, token_enc, "
-        "webhook_secret, status, language, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-        (rid, meta["owner"]["login"], meta["name"], full, meta.get("description"), meta.get("html_url"),
-         int(meta.get("private", False)), meta.get("default_branch"), encrypt(token), new_secret(), "idle", body.language, ts, ts),
+        "webhook_secret, status, language, is_demo, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        (rid, meta["owner"]["login"], meta["name"], meta["full_name"], meta.get("description"), meta.get("html_url"),
+         int(meta.get("private", False)), meta.get("default_branch"), encrypt(token), new_secret(), "idle", language,
+         int(is_demo), ts, ts),
     )
-    log_event(rid, "registered", repo=full)
-    if request_analysis(rid):
-        bg.add_task(run_analysis, rid, "initial", True)
-    return _public_repo(_repo_or_404(rid), with_secret=True)
+    log_event(rid, "registered", repo=meta["full_name"])
+    return rid
+
+
+def seed_demo_repo() -> None:
+    """デモ用リポジトリを一度だけ登録して分析する. 登録済みかは app_meta に記録 (削除後に復活させない)."""
+    if not settings.demo_repo:
+        return
+    try:
+        key = f"demo_seeded:{settings.demo_repo.lower()}"
+        if db.query_one("SELECT value FROM app_meta WHERE key=?", (key,)):
+            return
+        owner, name = parse_repo_ref(settings.demo_repo)
+        existing = db.query_one("SELECT id FROM repos WHERE LOWER(full_name)=LOWER(?)", (f"{owner}/{name}",))
+        if existing:
+            db.execute("UPDATE repos SET is_demo=1 WHERE id=?", (existing["id"],))
+            rid = None
+        else:
+            meta = GitHubClient(settings.github_token or None).repo(owner, name)
+            rid = _register(meta, None, settings.demo_repo_language, is_demo=True)
+        # 複数インスタンスが同時に起動しても 1 回だけ記録される
+        if db.execute("INSERT OR IGNORE INTO app_meta (key, value) VALUES (?, ?)", (key, now_iso())) and rid:
+            if request_analysis(rid):
+                run_analysis(rid, "initial", True)
+    except Exception:  # noqa: BLE001  デモの登録失敗で API を止めない
+        log.warning("failed to seed demo repository", exc_info=True)
 
 
 @app.get("/api/repos/{repo_id}")
@@ -167,7 +201,8 @@ def patch_repo(repo_id: str, body: RepoPatch):
 
 @app.delete("/api/repos/{repo_id}", status_code=204)
 def delete_repo(repo_id: str):
-    _repo_or_404(repo_id)
+    if _repo_or_404(repo_id).get("is_demo"):
+        raise HTTPException(403, "demo_protected")
     for t in ("tasks", "milestones", "analyses", "events"):
         db.execute(f"DELETE FROM {t} WHERE repo_id=?", (repo_id,))
     db.execute("DELETE FROM repos WHERE id=?", (repo_id,))

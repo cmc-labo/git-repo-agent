@@ -92,6 +92,7 @@ export default function Settings({
         {tokenMsg && <div className="small" style={{ color: "var(--green-dark)", marginTop: 6 }}>{tokenMsg}</div>}
       </div>
 
+      {!repo.is_demo && (
       <div className="card">
         <h2 className="section">{t("st.deleteTitle")}</h2>
         <p className="small muted" style={{ marginTop: -4 }}>{t("st.deleteDesc")}</p>
@@ -105,6 +106,7 @@ export default function Settings({
           <button className="btn danger" onClick={() => setConfirmDel(true)}>{t("st.deleteButton")}</button>
         )}
       </div>
+      )}
     </>
   );
 }

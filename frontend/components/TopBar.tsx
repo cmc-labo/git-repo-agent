@@ -16,14 +16,14 @@ export default function TopBar() {
     <header className="topbar">
       <Link href="/" className="brand">
         <span className="brand-mark">GA</span>
-        Git Repository Agent
+        <span className="brand-text">Git Repository Agent</span>
       </Link>
       <span className="spacer" />
       {cfg && (
         cfg.demo_mode ? (
           <span className="pill warn" title={t("top.demoTooltip")}>{t("top.demo")}</span>
         ) : (
-          <span className="pill hide-sm">{cfg.model} · {cfg.backend}</span>
+          <span className="pill hide-sm">{cfg.backend}</span>
         )
       )}
       <button className="lang-btn" onClick={openPicker} title={t("top.language")}>

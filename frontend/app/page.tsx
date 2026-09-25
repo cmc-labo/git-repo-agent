@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { api, Repo } from "@/lib/api";
 import { RepoStatus } from "@/components/StatusBadge";
+import Hero from "@/components/Hero";
 import { useI18n } from "@/lib/i18n";
 import { findLanguage } from "@/lib/i18n/languages";
 import { errorText } from "@/lib/errors";
@@ -45,6 +46,7 @@ export default function Home() {
 
   return (
     <div className="container">
+      <Hero />
       <div className="card" style={{ marginBottom: 24 }}>
         <h2 className="section">{t("home.registerTitle")}</h2>
         <p className="muted small" style={{ marginTop: -4 }}>{t("home.registerDesc")}</p>
@@ -78,6 +80,7 @@ export default function Home() {
       </div>
 
       <h2 className="section">{t("home.watching")}</h2>
+      {repos?.some((r) => r.is_demo) && <p className="muted small" style={{ marginTop: -6 }}>{t("hero.demoHint")}</p>}
       {repos === null ? (
         <div className="muted"><span className="spinner" /> {t("common.loading")}</div>
       ) : repos.length === 0 ? (
@@ -88,9 +91,12 @@ export default function Home() {
             const total = r.tasks_total || 0;
             const pct = total ? Math.round(((r.tasks_done || 0) / total) * 100) : 0;
             return (
-              <Link key={r.id} href={`/repos/${r.id}`} className="card repo-card">
+              <Link key={r.id} href={`/repos/${r.id}`} className={`card repo-card ${r.is_demo ? "is-demo" : ""}`}>
                 <div className="row" style={{ justifyContent: "space-between", flexWrap: "nowrap" }}>
-                  <span className="title">{r.full_name}</span>
+                  <span className="row" style={{ flexWrap: "nowrap", minWidth: 0 }}>
+                    {r.is_demo && <span className="tag demo">{t("home.demoLabel")}</span>}
+                    <span className="title">{r.full_name}</span>
+                  </span>
                   <RepoStatus status={r.status} />
                 </div>
                 <div className="muted small" style={{ minHeight: 40, margin: "6px 0 10px" }}>

@@ -17,6 +17,7 @@ export interface Repo {
   error: string | null;
   has_token: boolean;
   language: string | null;
+  is_demo: boolean;
   webhook_url?: string;
   webhook_secret?: string;
   tasks_total?: number;

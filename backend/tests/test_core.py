@@ -112,3 +112,35 @@ def test_webhook_signature():
     sig2 = "sha256=" + hmac.new(b"s3cret", body2, hashlib.sha256).hexdigest()
     r = c.post("/api/webhooks/github", content=body2, headers={"X-GitHub-Event": "push", "X-Hub-Signature-256": sig2})
     assert r.json()["ignored"] == "non-default branch"
+
+
+def test_demo_repo_seeded_once_listed_last_and_protected(monkeypatch):
+    import app.main as m
+
+    class FakeGH:
+        def __init__(self, *_a, **_k):
+            pass
+
+        def repo(self, owner, name):
+            return {"full_name": f"{owner}/{name}", "name": name, "owner": {"login": owner},
+                    "default_branch": "master", "private": False}
+
+    ran = []
+    monkeypatch.setattr(m, "GitHubClient", FakeGH)
+    monkeypatch.setattr(m, "run_analysis", lambda rid, trig, comp: ran.append((rid, trig)))
+    m.seed_demo_repo()
+    m.seed_demo_repo()  # 2 回目は何もしない
+    demo = db.query("SELECT * FROM repos WHERE full_name='antirez/kilo'")
+    assert len(demo) == 1 and demo[0]["is_demo"] == 1 and demo[0]["language"] == "en"
+    assert len(ran) == 1
+
+    _repo("rp_newest", "acme/newest")  # デモより後に登録されたユーザーのリポジトリ
+    c = TestClient(app)
+    names = [r["full_name"] for r in c.get("/api/repos").json()]
+    assert names[-1] == "antirez/kilo" and names[0] != "antirez/kilo"
+    assert c.delete(f"/api/repos/{demo[0]['id']}").json()["detail"] == "demo_protected"
+
+    # 削除されても (DB から直接消しても) 再登録しない
+    db.execute("DELETE FROM repos WHERE full_name='antirez/kilo'")
+    m.seed_demo_repo()
+    assert not db.query("SELECT id FROM repos WHERE full_name='antirez/kilo'")

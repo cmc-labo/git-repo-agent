@@ -94,6 +94,10 @@ SCHEMA = [
         created_at TEXT NOT NULL
     )""",
     "CREATE INDEX IF NOT EXISTS idx_events_repo ON events(repo_id, id)",
+    """CREATE TABLE IF NOT EXISTS app_meta (
+        key TEXT PRIMARY KEY,
+        value TEXT
+    )""",
     """CREATE TABLE IF NOT EXISTS translations (
         lang TEXT NOT NULL,
         hash TEXT NOT NULL,
@@ -106,6 +110,7 @@ SCHEMA = [
 # 既存 DB に後から追加したカラム (SQLite は ADD COLUMN IF NOT EXISTS がないので失敗は無視する)
 MIGRATIONS = [
     "ALTER TABLE repos ADD COLUMN language TEXT DEFAULT 'ja'",
+    "ALTER TABLE repos ADD COLUMN is_demo INTEGER DEFAULT 0",
 ]
 
 
