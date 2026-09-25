@@ -4,6 +4,7 @@ import TopBar from "@/components/TopBar";
 import Footer from "@/components/Footer";
 import LanguagePicker from "@/components/LanguagePicker";
 import { I18nProvider } from "@/lib/i18n";
+import GoogleAnalytics from "@/components/GoogleAnalytics";
 
 export const metadata: Metadata = {
   title: "Git Repository Agent",
@@ -20,6 +21,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <Footer />
           <LanguagePicker />
         </I18nProvider>
+        <GoogleAnalytics />
       </body>
     </html>
   );

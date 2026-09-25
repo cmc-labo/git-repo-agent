@@ -4,6 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import en, { MessageKey, Messages } from "./en";
 import ja from "./ja";
 import { findLanguage } from "./languages";
+import { track } from "../analytics";
 
 const LANG_KEY = "gra.lang";
 const BUNDLED: Record<string, Messages> = { en, ja };
@@ -94,6 +95,7 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
   const setLang = useCallback(
     (code: string) => {
       storage()?.setItem(LANG_KEY, code);
+      track("select_language", { language: code });
       setPickerOpen(false);
       apply(code);
     },

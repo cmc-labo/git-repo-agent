@@ -7,6 +7,7 @@ import {
 } from "@/lib/api";
 import { useI18n } from "@/lib/i18n";
 import { errorText } from "@/lib/errors";
+import { track } from "@/lib/analytics";
 import { RepoStatus } from "@/components/StatusBadge";
 import Overview from "@/components/Overview";
 import Competitors from "@/components/Competitors";
@@ -99,6 +100,7 @@ export default function RepoPage() {
   }, [poll, busy]);
 
   async function reanalyze(withCompetitors = false) {
+    track("reanalyze", { competitors: withCompetitors });
     await api.analyze(id, withCompetitors);
     await poll();
   }

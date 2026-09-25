@@ -10,6 +10,7 @@ import GeoBackground from "@/components/GeoBackground";
 import { useI18n } from "@/lib/i18n";
 import { findLanguage } from "@/lib/i18n/languages";
 import { errorText } from "@/lib/errors";
+import { track } from "@/lib/analytics";
 
 export default function Home() {
   const router = useRouter();
@@ -38,6 +39,7 @@ export default function Home() {
     setError(null);
     try {
       const r = await api.createRepo(repoInput.trim(), lang || "en", token.trim() || undefined);
+      track("register_repository", { private: !!token.trim(), language: lang || "en" });
       router.push(`/repos/${r.id}`);
     } catch (err) {
       setError(errorText(err, t));
