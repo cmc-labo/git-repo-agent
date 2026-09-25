@@ -265,7 +265,6 @@ body { min-height: 100vh; display: flex; flex-direction: column; }
   border-top: 1px solid var(--border); background: var(--surface); color: var(--muted); font-size: 12px;
   padding: 14px 20px; display: flex; justify-content: center; gap: 8px; flex-wrap: wrap;
 }
-.footer b { color: var(--text); }
 .footer .sep { color: var(--faint); }
 
 /* ---------- language ---------- */
@@ -364,4 +363,6 @@ body { min-height: 100vh; display: flex; flex-direction: column; }
 
 .privacy-note { margin: 2px 0 0; font-size: 11px; color: var(--faint); }
 
-.turnstile { min-height: 65px; }
+.turnstile:empty { display: none; }
+.verifying { display: inline-flex; align-items: center; gap: 6px; }
+.verifying .spinner { width: 10px; height: 10px; border-width: 1.5px; }

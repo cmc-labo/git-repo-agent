@@ -76,6 +76,7 @@ export default function Home() {
               {t("home.privateToggle")}
             </button>
             <span className="faint small">{t("home.analysisLanguage", { lang: findLanguage(lang)?.native ?? "English" })}</span>
+            {!captcha && <span className="faint small verifying"><span className="spinner" />{t("home.verifying")}</span>}
           </div>
           {showToken && (
             <div>

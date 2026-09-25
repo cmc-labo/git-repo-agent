@@ -57,6 +57,7 @@ const en = {
   "home.tokenNote": "The token is encrypted on the server and never shown again.",
   "home.analysisLanguage": "Analysis language: {lang}",
   "home.privacyNote": "Repositories you register are tied to this browser: they are not visible to, and cannot be operated from, other browsers (other people). Clearing this site's data also removes your own access.",
+  "home.verifying": "Verifying you are human…",
   "home.watching": "Watched repositories",
   "home.empty": "No repositories yet. Register one with the form above.",
   "home.noDescription": "(no description)",

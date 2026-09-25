@@ -36,6 +36,8 @@ export default function Turnstile({ onToken, resetKey }: { onToken: (token: stri
     widget.current = window.turnstile.render(el.current, {
       sitekey: TURNSTILE_SITE_KEY,
       language: "auto",
+      // 通常は表示せずバックグラウンドで判定し、操作が必要なときだけウィジェットを出す
+      appearance: "interaction-only",
       callback: (t: string) => cb.current(t),
       "expired-callback": () => cb.current(null),
       "error-callback": () => cb.current(null),

@@ -58,6 +58,7 @@ const ja: Messages = {
   "home.tokenNote": "トークンはサーバー側で暗号化して保存され、画面には再表示されません。",
   "home.analysisLanguage": "分析の出力言語: {lang}",
   "home.privacyNote": "登録したリポジトリはこのブラウザに紐づきます。別のブラウザ（他の人）からは見えず、操作もできません。※ サイトデータを削除すると、ご自身もアクセスできなくなります。",
+  "home.verifying": "ボット判定中…",
   "home.watching": "観測中のリポジトリ",
   "home.empty": "まだリポジトリがありません。上のフォームから登録してください。",
   "home.noDescription": "(説明なし)",

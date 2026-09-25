@@ -8,7 +8,7 @@ export default function Footer() {
     <footer className="footer">
       <span>© {new Date().getFullYear()} Git Repository Agent</span>
       <span className="sep">·</span>
-      <span>{t("footer.developer")}: <b>hpscript</b></span>
+      <span>{t("footer.developer")}: hpscript</span>
     </footer>
   );
 }
