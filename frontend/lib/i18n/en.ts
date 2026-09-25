@@ -43,6 +43,7 @@ const en = {
   "hero.demoHint": "Want to see a finished analysis first? Open the DEMO repository in the list below.",
   "home.demoLabel": "DEMO",
 
+  "err.captcha_failed": "Bot verification failed. Please complete the check again and retry.",
   "err.demo_readonly": "The demo repository is read-only. Register your own repository to edit it.",
   "err.missing_owner": "Could not identify this browser. Please enable site storage and reload.",
   "repo.demoReadonly": "This is a read-only demo analysis. Register your own repository to re-analyze and manage tasks.",

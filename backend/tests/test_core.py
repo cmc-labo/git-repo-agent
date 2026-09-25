@@ -217,3 +217,30 @@ def test_migration_drops_unique_full_name(tmp_path):
                    "VALUES ('rp_dup','o','n','o/n','s2','t','t')")  # 同じ full_name を登録できる
     finally:
         db._db = orig
+
+
+def test_register_requires_turnstile(monkeypatch):
+    import app.turnstile as ts
+    from app.config import settings
+    monkeypatch.setattr(type(settings), "turnstile_secret", property(lambda self: "secret"), raising=False)
+    calls = []
+
+    class Resp:
+        def __init__(self, ok):
+            self.ok = ok
+
+        def json(self):
+            return {"success": self.ok, "error-codes": [] if self.ok else ["invalid-input-response"]}
+
+    def fake_post(url, data, timeout):
+        calls.append(data)
+        return Resp(data["response"] == "good-token")
+
+    monkeypatch.setattr(ts.httpx, "post", fake_post)
+    c = TestClient(app)
+    h = {"X-Owner-Id": OWNER_A}
+    assert c.post("/api/repos", json={"repo": "acme/x"}, headers=h).json()["detail"] == "captcha_failed"
+    assert c.post("/api/repos", json={"repo": "acme/x", "turnstile_token": "bad"}, headers=h).json()["detail"] == "captcha_failed"
+    assert calls == [{"secret": "secret", "response": "bad"}]  # トークンなしは Cloudflare に問い合わせない
+    # 正しいトークンなら検証を通過して GitHub 側の処理へ進む (ここでは不正な参照で止まる)
+    assert c.post("/api/repos", json={"repo": "not-a-ref", "turnstile_token": "good-token"}, headers=h).json()["detail"] == "invalid_repo_ref"

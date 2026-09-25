@@ -12,6 +12,8 @@ GEMINI_MODEL="${GEMINI_MODEL:-gemini-2.5-flash}"
 APP_SECRET="${APP_SECRET:-$(openssl rand -hex 24)}"
 CRON_TOKEN="${CRON_TOKEN:-$(openssl rand -hex 24)}"
 GITHUB_TOKEN="${GITHUB_TOKEN:-}"
+TURNSTILE_SECRET_KEY="${TURNSTILE_SECRET_KEY:-}"
+if [ -z "$TURNSTILE_SECRET_KEY" ]; then echo "WARNING: TURNSTILE_SECRET_KEY 未設定のため、リポジトリ登録のボット判定が無効になります" >&2; fi
 SA_NAME="git-repo-agent"
 SA="${SA_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
 cd "$(dirname "$0")/.."
@@ -42,6 +44,7 @@ TURSO_AUTH_TOKEN: "${TURSO_AUTH_TOKEN}"
 APP_SECRET: "${APP_SECRET}"
 CRON_TOKEN: "${CRON_TOKEN}"
 GITHUB_TOKEN: "${GITHUB_TOKEN}"
+TURNSTILE_SECRET_KEY: "${TURNSTILE_SECRET_KEY}"
 YAML
 if [ -n "$EXISTING_URL" ]; then echo "PUBLIC_BASE_URL: \"${EXISTING_URL}\"" >> "$ENV_FILE"; fi
 

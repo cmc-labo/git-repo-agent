@@ -30,6 +30,11 @@ Repositories are separated **per browser**:
 - The demo repository is visible to everyone and read-only.
 - Clearing site data or switching browsers loses access to your repositories. GitHub login is planned for Phase 2.
 
+Repository registration is protected by **Cloudflare Turnstile**, so it cannot be triggered by scripts. The backend verifies the token with Cloudflare before calling GitHub or Gemini.
+- Set `TURNSTILE_SECRET_KEY` on Cloud Run. If it is empty, verification is disabled.
+- The site key is public and has a default in `frontend/components/Turnstile.tsx`. Override it with `NEXT_PUBLIC_TURNSTILE_SITE_KEY` if needed.
+- During local development (`npm run dev`), Cloudflare's always-passing test key is used, so localhost does not need to be registered.
+
 Analyses survive instance restarts:
 - A running analysis writes a heartbeat every minute.
 - A run whose heartbeat stopped for 3 minutes (for example, when Cloud Run replaced the instance during a deploy) is re-run automatically, on startup and by the 15-minute scheduler.
@@ -131,7 +136,7 @@ Tables are created, and migrated, automatically on startup.
 ### 2. Backend (Cloud Run)
 ```bash
 PROJECT_ID=<gcp-project> TURSO_DATABASE_URL=libsql://... TURSO_AUTH_TOKEN=... \
-  ./deploy/deploy_backend.sh
+TURNSTILE_SECRET_KEY=... ./deploy/deploy_backend.sh
 ```
 The script creates:
 - the Cloud Run service

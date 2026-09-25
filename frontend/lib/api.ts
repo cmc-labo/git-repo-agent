@@ -203,8 +203,11 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
 export const api = {
   config: () => req<AppConfig>("/config"),
   repos: () => req<Repo[]>("/repos"),
-  createRepo: (repo: string, language: string, token?: string) =>
-    req<Repo>("/repos", { method: "POST", body: JSON.stringify({ repo, language, token: token || null }) }),
+  createRepo: (repo: string, language: string, token: string | undefined, turnstileToken: string | null) =>
+    req<Repo>("/repos", {
+      method: "POST",
+      body: JSON.stringify({ repo, language, token: token || null, turnstile_token: turnstileToken }),
+    }),
   repo: (id: string) =>
     req<{ repo: Repo; latest_analysis: Analysis | null; competitors: CompetitorAnalysis | null }>(`/repos/${id}`),
   deleteRepo: (id: string) => req<void>(`/repos/${id}`, { method: "DELETE" }),

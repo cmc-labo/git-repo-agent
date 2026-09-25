@@ -21,6 +21,7 @@ from .agent.schemas import TranslationResult
 from .config import settings
 from .github_client import GitHubClient, GitHubError, parse_repo_ref
 from .roadmap import build_roadmap
+from . import turnstile
 from .util import decrypt, encrypt, new_id, new_secret, now_iso
 
 logging.basicConfig(level=logging.INFO)
@@ -123,6 +124,7 @@ class RepoCreate(BaseModel):
     repo: str = Field(description="owner/repo or a GitHub URL")
     token: str | None = Field(default=None, description="GitHub token for private repositories (read access)")
     language: str = Field(default="en", pattern=LANG_PATTERN, description="Output language of the analysis")
+    turnstile_token: str | None = Field(default=None, description="Cloudflare Turnstile response token")
 
 
 class RepoPatch(BaseModel):
@@ -154,6 +156,9 @@ def list_repos(okey: str | None = Depends(owner_key)):
 def create_repo(body: RepoCreate, bg: BackgroundTasks, okey: str | None = Depends(owner_key)):
     if not okey:
         raise HTTPException(400, "missing_owner")
+    # GitHub / Gemini を呼ぶ前にボット判定する
+    if not turnstile.verify(body.turnstile_token):
+        raise HTTPException(403, "captcha_failed")
     try:
         owner, name = parse_repo_ref(body.repo)
     except ValueError as e:

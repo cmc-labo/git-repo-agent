@@ -7,6 +7,7 @@ import { api, Repo } from "@/lib/api";
 import { RepoStatus } from "@/components/StatusBadge";
 import Hero from "@/components/Hero";
 import GeoBackground from "@/components/GeoBackground";
+import Turnstile from "@/components/Turnstile";
 import { useI18n } from "@/lib/i18n";
 import { findLanguage } from "@/lib/i18n/languages";
 import { errorText } from "@/lib/errors";
@@ -21,6 +22,9 @@ export default function Home() {
   const [showToken, setShowToken] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // ボット対策: Turnstile を通過したトークン (1 回使い切り). 送信後は resetKey で再検証する
+  const [captcha, setCaptcha] = useState<string | null>(null);
+  const [captchaReset, setCaptchaReset] = useState(0);
 
   const load = useCallback(() => {
     api.repos().then(setRepos).catch((e) => setError(String(e.message || e)));
@@ -34,16 +38,17 @@ export default function Home() {
 
   async function submit(e: FormEvent) {
     e.preventDefault();
-    if (!repoInput.trim()) return;
+    if (!repoInput.trim() || !captcha) return;
     setBusy(true);
     setError(null);
     try {
-      const r = await api.createRepo(repoInput.trim(), lang || "en", token.trim() || undefined);
+      const r = await api.createRepo(repoInput.trim(), lang || "en", token.trim() || undefined, captcha);
       track("register_repository", { private: !!token.trim(), language: lang || "en" });
       router.push(`/repos/${r.id}`);
     } catch (err) {
       setError(errorText(err, t));
       setBusy(false);
+      setCaptchaReset((n) => n + 1); // トークンは使用済みなので取り直す
     }
   }
 
@@ -62,7 +67,7 @@ export default function Home() {
               onChange={(e) => setRepoInput(e.target.value)}
               disabled={busy}
             />
-            <button className="btn primary" disabled={busy || !repoInput.trim()} style={{ whiteSpace: "nowrap" }}>
+            <button className="btn primary" disabled={busy || !repoInput.trim() || !captcha} style={{ whiteSpace: "nowrap" }}>
               {busy ? <span className="spinner" /> : "＋"} {t("home.submit")}
             </button>
           </div>
@@ -79,7 +84,8 @@ export default function Home() {
               <div className="faint small">{t("home.tokenNote")}</div>
             </div>
           )}
-          <p className="privacy-note">🔒 {t("home.privacyNote")}</p>
+          <Turnstile onToken={setCaptcha} resetKey={captchaReset} />
+          <p className="privacy-note">{t("home.privacyNote")}</p>
           {error && <div className="err">{error}</div>}
         </form>
       </div>
