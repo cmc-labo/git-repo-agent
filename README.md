@@ -24,6 +24,17 @@ A demo repository ([antirez/kilo](https://github.com/antirez/kilo)) is registere
 - It carries a **DEMO** label, is always listed after user-registered repositories, and cannot be unregistered.
 - It is seeded only once. Configure it with `DEMO_REPO` / `DEMO_REPO_LANGUAGE`, or set `DEMO_REPO=` to disable it.
 
+Repositories are separated **per browser**:
+- There is no login. Each browser gets a random ID, stored in localStorage and sent as `X-Owner-Id`; the database stores only its hash.
+- Every repository endpoint checks ownership. Other people's repositories are neither listed nor readable.
+- The demo repository is visible to everyone and read-only.
+- Clearing site data or switching browsers loses access to your repositories. GitHub login is planned for Phase 2.
+
+Analyses survive instance restarts:
+- A running analysis writes a heartbeat every minute.
+- A run whose heartbeat stopped for 3 minutes (for example, when Cloud Run replaced the instance during a deploy) is re-run automatically, on startup and by the 15-minute scheduler.
+- Gemini calls have a 150-second timeout.
+
 Agent rules:
 - A status changed by a human is never overridden by the agent.
 - Updates that arrive during an analysis are coalesced into one follow-up run (debounce).
@@ -141,7 +152,7 @@ Register the Payload URL and Secret shown on the dashboard's **Settings** tab in
 
 ## Known limitations / Phase 2
 
-- There is no authentication; this build is meant for demos. For public operation, separate users (for example with GitHub OAuth) and restrict who can see webhook secrets.
+- Ownership is per browser, not per account. For production use, replace it with GitHub OAuth.
 - Analyses run in Cloud Run background tasks, which requires `--no-cpu-throttling`. At larger scale, move them to Cloud Tasks.
 - Phase 2: source-code analysis (diff-based, with AST and static analysis), security risk analysis, and packaging as a GitHub App.
 

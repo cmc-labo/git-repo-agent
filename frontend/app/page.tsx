@@ -6,6 +6,7 @@ import { FormEvent, useCallback, useEffect, useState } from "react";
 import { api, Repo } from "@/lib/api";
 import { RepoStatus } from "@/components/StatusBadge";
 import Hero from "@/components/Hero";
+import GeoBackground from "@/components/GeoBackground";
 import { useI18n } from "@/lib/i18n";
 import { findLanguage } from "@/lib/i18n/languages";
 import { errorText } from "@/lib/errors";
@@ -45,7 +46,8 @@ export default function Home() {
   }
 
   return (
-    <div className="container">
+    <div className="container home">
+      <GeoBackground />
       <Hero />
       <div className="card" style={{ marginBottom: 24 }}>
         <h2 className="section">{t("home.registerTitle")}</h2>

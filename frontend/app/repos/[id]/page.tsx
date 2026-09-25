@@ -91,6 +91,8 @@ export default function RepoPage() {
   }
 
   const busy = repo?.status === "queued" || repo?.status === "analyzing";
+  // 自分が登録したリポジトリだけ編集できる (デモは閲覧専用)
+  const canEdit = !!repo?.is_owner;
   useEffect(() => {
     const t = setInterval(poll, busy ? 3000 : 15000);
     return () => clearInterval(t);
@@ -132,7 +134,7 @@ export default function RepoPage() {
           </div>
           <div className="sub">{repo.is_private ? `🔒 ${t("common.private")}` : t("common.public")} · {repo.default_branch}</div>
         </div>
-        {TABS.map((x) => (
+        {TABS.filter((x) => canEdit || x.key !== "settings").map((x) => (
           <button key={x.key} className={`nav-item ${tab === x.key ? "active" : ""}`} onClick={() => selectTab(x.key)}>
             <span className="ico">{x.ico}</span>
             {t(`tab.${x.key}`)}
@@ -152,10 +154,11 @@ export default function RepoPage() {
             {repo.last_analyzed_sha && <span className="mono"> @{repo.last_analyzed_sha.slice(0, 7)}</span>}
           </span>
           {repo.html_url && <a className="btn sm" href={repo.html_url} target="_blank" rel="noreferrer">{t("common.github")}</a>}
-          <button className="btn primary" onClick={() => reanalyze(false)} disabled={busy}>
+          {canEdit && <button className="btn primary" onClick={() => reanalyze(false)} disabled={busy}>
             {busy ? <span className="spinner" /> : "⟳"} {busy ? t("repo.analyzing") : t("repo.reanalyze")}
-          </button>
+          </button>}
         </div>
+        {!canEdit && <div className="notice" style={{ marginBottom: 14 }}>{t("repo.demoReadonly")}</div>}
         {repo.status === "error" && repo.error && <div className="err" style={{ marginBottom: 14 }}>{t("repo.lastError", { error: repo.error })}</div>}
         {analysis?.changes?.demo && (
           <div className="notice" style={{ marginBottom: 14 }}>{t("repo.demoNotice")}</div>
@@ -166,11 +169,12 @@ export default function RepoPage() {
             onOpenTask={(t) => setDrawer({ task: t })} />
         )}
         {tab === "competitors" && (
-          <Competitors data={competitors} updatedAt={repo.competitors_updated_at} busy={busy} onRefresh={() => reanalyze(true)} />
+          <Competitors data={competitors} updatedAt={repo.competitors_updated_at} busy={busy}
+            onRefresh={canEdit ? () => reanalyze(true) : undefined} />
         )}
         {tab === "priority" && (
           <Priority tasks={tasks} milestones={milestones} onOpenTask={(t) => setDrawer({ task: t })}
-            onAddTask={() => setDrawer({ task: null })} />
+            onAddTask={canEdit ? () => setDrawer({ task: null }) : undefined} />
         )}
         {tab === "roadmap" && (
           <Roadmap data={roadmap} onOpenTask={(tid) => {
@@ -180,9 +184,9 @@ export default function RepoPage() {
         )}
         {tab === "progress" && (
           <ProgressView tasks={tasks} progress={progress} analyses={analyses}
-            onOpenTask={(t) => setDrawer({ task: t })} onMove={moveTask} />
+            onOpenTask={(t) => setDrawer({ task: t })} onMove={canEdit ? moveTask : undefined} />
         )}
-        {tab === "settings" && (
+        {tab === "settings" && canEdit && (
           <Settings
             repo={repo}
             onSaveToken={async (tok) => { await api.updateRepo(id, { token: tok }); await loadAll(); }}
@@ -194,6 +198,7 @@ export default function RepoPage() {
 
       {drawer && (
         <TaskDrawer
+          readOnly={!canEdit}
           key={drawer.task?.id ?? "new"}
           task={drawer.task}
           milestones={milestones}

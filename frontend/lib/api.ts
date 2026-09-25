@@ -18,6 +18,7 @@ export interface Repo {
   has_token: boolean;
   language: string | null;
   is_demo: boolean;
+  is_owner: boolean;
   webhook_url?: string;
   webhook_secret?: string;
   tasks_total?: number;
@@ -163,10 +164,29 @@ export interface AppConfig {
   db: string;
 }
 
+// ログインの代わりに、ブラウザごとにランダムな ID を発行してリポジトリの所有者を区別する
+const OWNER_KEY = "gra.owner";
+let memoryOwner: string | null = null;
+
+function ownerId(): string {
+  try {
+    let id = localStorage.getItem(OWNER_KEY);
+    if (!id) {
+      id = crypto.randomUUID();
+      localStorage.setItem(OWNER_KEY, id);
+    }
+    return id;
+  } catch {
+    // localStorage が使えない環境 (プライベートモード等) ではタブを開いている間だけ有効
+    memoryOwner ??= crypto.randomUUID();
+    return memoryOwner;
+  }
+}
+
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`/api${path}`, {
     ...init,
-    headers: { "Content-Type": "application/json", ...(init?.headers || {}) },
+    headers: { "Content-Type": "application/json", "X-Owner-Id": ownerId(), ...(init?.headers || {}) },
     cache: "no-store",
   });
   if (!res.ok) {

@@ -6,16 +6,17 @@ import json
 import logging
 import re
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 
-from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Request
+from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from . import db
 from .agent import llm, prompts
-from .agent.pipeline import compute_score, log_event, request_analysis, run_analysis
+from .agent.pipeline import STALE_MINUTES, compute_score, log_event, recover_stale, request_analysis, run_analysis
 from .agent.schemas import TranslationResult
 from .config import settings
 from .github_client import GitHubClient, GitHubError, parse_repo_ref
@@ -32,8 +33,8 @@ LANG_PATTERN = r"^[a-z]{2,3}(-[A-Za-z0-9]{2,8}){0,2}$"
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     db.init_db()
-    # GitHub API を呼ぶので起動をブロックしないよう別スレッドで
-    threading.Thread(target=seed_demo_repo, daemon=True).start()
+    # GitHub API / Gemini を呼ぶので起動をブロックしないよう別スレッドで
+    threading.Thread(target=startup_jobs, daemon=True).start()
     yield
 
 
@@ -46,6 +47,18 @@ app.add_middleware(
 )
 
 
+# ------------------------------------------------------------------ ownership
+# ログインの代わりに、ブラウザごとに発行したランダムな ID (X-Owner-Id) でリポジトリを分ける.
+# DB にはそのハッシュだけを保存する. デモ用リポジトリは全員が閲覧でき、誰も変更できない.
+OWNER_ID = re.compile(r"^[A-Za-z0-9-]{16,64}$")
+
+
+def owner_key(x_owner_id: str = Header(default="")) -> str | None:
+    if not OWNER_ID.match(x_owner_id):
+        return None
+    return hashlib.sha256(x_owner_id.encode()).hexdigest()
+
+
 def _repo_or_404(repo_id: str) -> dict:
     r = db.query_one("SELECT * FROM repos WHERE id=?", (repo_id,))
     if not r:
@@ -53,12 +66,33 @@ def _repo_or_404(repo_id: str) -> dict:
     return r
 
 
-def _public_repo(r: dict, with_secret: bool = False) -> dict:
-    out = {k: v for k, v in r.items() if k not in ("token_enc", "webhook_secret")}
+def _is_owner(r: dict, okey: str | None) -> bool:
+    return bool(okey) and bool(r.get("owner_key")) and hmac.compare_digest(r["owner_key"], okey)
+
+
+def _readable(repo_id: str, okey: str | None) -> dict:
+    r = _repo_or_404(repo_id)
+    if r.get("is_demo") or _is_owner(r, okey):
+        return r
+    raise HTTPException(404, "repository not found")  # 他人のリポジトリは存在自体を見せない
+
+
+def _writable(repo_id: str, okey: str | None) -> dict:
+    r = _repo_or_404(repo_id)
+    if _is_owner(r, okey):
+        return r
+    if r.get("is_demo"):
+        raise HTTPException(403, "demo_readonly")
+    raise HTTPException(404, "repository not found")
+
+
+def _public_repo(r: dict, okey: str | None = None, with_secret: bool = False) -> dict:
+    out = {k: v for k, v in r.items() if k not in ("token_enc", "webhook_secret", "owner_key")}
+    out["is_owner"] = _is_owner(r, okey)
     out["has_token"] = bool(r.get("token_enc"))
     out["is_private"] = bool(r.get("is_private"))
     out["is_demo"] = bool(r.get("is_demo"))
-    if with_secret:
+    if with_secret and out["is_owner"]:
         out["webhook_url"] = settings.public_base_url.rstrip("/") + "/api/webhooks/github"
         out["webhook_secret"] = r["webhook_secret"]
     return out
@@ -97,9 +131,11 @@ class RepoPatch(BaseModel):
 
 
 @app.get("/api/repos")
-def list_repos():
-    # ユーザーが登録したものを新しい順に、デモは最後尾
-    repos = db.query("SELECT * FROM repos ORDER BY COALESCE(is_demo, 0) ASC, created_at DESC")
+def list_repos(okey: str | None = Depends(owner_key)):
+    # 自分が登録したものを新しい順に、デモは最後尾
+    repos = db.query(
+        "SELECT * FROM repos WHERE owner_key=? OR is_demo=1 ORDER BY COALESCE(is_demo, 0) ASC, created_at DESC",
+        (okey or "-",))
     stats = {
         r["repo_id"]: r for r in db.query(
             "SELECT repo_id, COUNT(*) AS total, SUM(CASE WHEN status='done' THEN 1 ELSE 0 END) AS done, "
@@ -109,13 +145,15 @@ def list_repos():
     out = []
     for r in repos:
         s = stats.get(r["id"], {})
-        out.append({**_public_repo(r), "tasks_total": s.get("total") or 0, "tasks_done": s.get("done") or 0,
+        out.append({**_public_repo(r, okey), "tasks_total": s.get("total") or 0, "tasks_done": s.get("done") or 0,
                     "tasks_in_progress": s.get("in_progress") or 0})
     return out
 
 
 @app.post("/api/repos", status_code=201)
-def create_repo(body: RepoCreate, bg: BackgroundTasks):
+def create_repo(body: RepoCreate, bg: BackgroundTasks, okey: str | None = Depends(owner_key)):
+    if not okey:
+        raise HTTPException(400, "missing_owner")
     try:
         owner, name = parse_repo_ref(body.repo)
     except ValueError as e:
@@ -127,82 +165,97 @@ def create_repo(body: RepoCreate, bg: BackgroundTasks):
         if e.status in (401, 403, 404):
             raise HTTPException(400, "repo_inaccessible") from e
         raise HTTPException(502, str(e)) from e
-    if db.query_one("SELECT id FROM repos WHERE full_name=?", (meta["full_name"],)):
+    if db.query_one("SELECT id FROM repos WHERE full_name=? AND owner_key=?", (meta["full_name"], okey)):
         raise HTTPException(409, "repo_exists")
-    rid = _register(meta, token, body.language, is_demo=False)
+    rid = _register(meta, token, body.language, is_demo=False, okey=okey)
     if request_analysis(rid):
         bg.add_task(run_analysis, rid, "initial", True)
-    return _public_repo(_repo_or_404(rid), with_secret=True)
+    return _public_repo(_repo_or_404(rid), okey, with_secret=True)
 
 
-def _register(meta: dict, token: str | None, language: str, is_demo: bool) -> str:
+def _register(meta: dict, token: str | None, language: str, is_demo: bool, okey: str | None = None) -> str:
     rid = new_id("rp")
     ts = now_iso()
     db.execute(
         "INSERT INTO repos (id, owner, name, full_name, description, html_url, is_private, default_branch, token_enc, "
-        "webhook_secret, status, language, is_demo, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "webhook_secret, status, language, is_demo, owner_key, created_at, updated_at) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (rid, meta["owner"]["login"], meta["name"], meta["full_name"], meta.get("description"), meta.get("html_url"),
          int(meta.get("private", False)), meta.get("default_branch"), encrypt(token), new_secret(), "idle", language,
-         int(is_demo), ts, ts),
+         int(is_demo), okey, ts, ts),
     )
     log_event(rid, "registered", repo=meta["full_name"])
     return rid
 
 
 def seed_demo_repo() -> None:
-    """デモ用リポジトリを一度だけ登録して分析する. 登録済みかは app_meta に記録 (削除後に復活させない)."""
+    """デモ用リポジトリを一度だけ登録する. 登録済みかは app_meta に記録 (削除後に復活させない)."""
     if not settings.demo_repo:
         return
-    try:
-        key = f"demo_seeded:{settings.demo_repo.lower()}"
-        if db.query_one("SELECT value FROM app_meta WHERE key=?", (key,)):
-            return
-        owner, name = parse_repo_ref(settings.demo_repo)
-        existing = db.query_one("SELECT id FROM repos WHERE LOWER(full_name)=LOWER(?)", (f"{owner}/{name}",))
-        if existing:
-            db.execute("UPDATE repos SET is_demo=1 WHERE id=?", (existing["id"],))
-            rid = None
-        else:
-            meta = GitHubClient(settings.github_token or None).repo(owner, name)
-            rid = _register(meta, None, settings.demo_repo_language, is_demo=True)
-        # 複数インスタンスが同時に起動しても 1 回だけ記録される
-        if db.execute("INSERT OR IGNORE INTO app_meta (key, value) VALUES (?, ?)", (key, now_iso())) and rid:
-            if request_analysis(rid):
-                run_analysis(rid, "initial", True)
-    except Exception:  # noqa: BLE001  デモの登録失敗で API を止めない
-        log.warning("failed to seed demo repository", exc_info=True)
+    key = f"demo_seeded:{settings.demo_repo.lower()}"
+    if db.query_one("SELECT value FROM app_meta WHERE key=?", (key,)):
+        return
+    owner, name = parse_repo_ref(settings.demo_repo)
+    if not db.query_one("SELECT id FROM repos WHERE is_demo=1 AND LOWER(full_name)=LOWER(?)", (f"{owner}/{name}",)):
+        meta = GitHubClient(settings.github_token or None).repo(owner, name)
+        _register(meta, None, settings.demo_repo_language, is_demo=True)
+    db.execute("INSERT OR IGNORE INTO app_meta (key, value) VALUES (?, ?)", (key, now_iso()))
+
+
+def ensure_demo_analyzed() -> None:
+    """デモは訪問者が開いた時点で分析結果が見えるよう、完了した分析がなければ実行する."""
+    for r in db.query("SELECT id FROM repos WHERE is_demo=1"):
+        done = db.query_one("SELECT id FROM analyses WHERE repo_id=? AND status='done' LIMIT 1", (r["id"],))
+        if not done and request_analysis(r["id"]):
+            run_analysis(r["id"], "initial", True)
+
+
+def _recover_and_rerun() -> None:
+    for rid in recover_stale():
+        run_analysis(rid, "recovered", False)
+
+
+def startup_jobs() -> None:
+    # 1. デモ登録 → 2. 中断された分析の再実行 → 3. デモ未分析なら分析 → 4. heartbeat 途絶を待って再確認
+    #    (デプロイ直後は旧インスタンスがまだ動いていることがあるため 4 で改めて確認する)
+    steps = [seed_demo_repo, _recover_and_rerun, ensure_demo_analyzed,
+             lambda: time.sleep(STALE_MINUTES * 60 + 30), _recover_and_rerun]
+    for job in steps:
+        try:
+            job()
+        except Exception:  # noqa: BLE001  API の起動は止めない
+            log.warning("startup job failed", exc_info=True)
 
 
 @app.get("/api/repos/{repo_id}")
-def get_repo(repo_id: str):
-    r = _repo_or_404(repo_id)
+def get_repo(repo_id: str, okey: str | None = Depends(owner_key)):
+    r = _readable(repo_id, okey)
     latest = db.query_one(
         "SELECT * FROM analyses WHERE repo_id=? AND status='done' ORDER BY started_at DESC LIMIT 1", (repo_id,))
     comp = db.query_one(
         "SELECT competitors_json FROM analyses WHERE repo_id=? AND competitors_json IS NOT NULL "
         "ORDER BY started_at DESC LIMIT 1", (repo_id,))
     return {
-        "repo": _public_repo(r, with_secret=True),
+        "repo": _public_repo(r, okey, with_secret=True),
         "latest_analysis": _analysis_public(latest) if latest else None,
         "competitors": _loads(comp["competitors_json"]) if comp else None,
     }
 
 
 @app.patch("/api/repos/{repo_id}")
-def patch_repo(repo_id: str, body: RepoPatch):
-    _repo_or_404(repo_id)
+def patch_repo(repo_id: str, body: RepoPatch, okey: str | None = Depends(owner_key)):
+    _writable(repo_id, okey)
     if body.token is not None:
         db.execute("UPDATE repos SET token_enc=?, updated_at=? WHERE id=?",
                    (encrypt(body.token.strip() or None), now_iso(), repo_id))
     if body.language is not None:
         db.execute("UPDATE repos SET language=?, updated_at=? WHERE id=?", (body.language, now_iso(), repo_id))
-    return _public_repo(_repo_or_404(repo_id))
+    return _public_repo(_repo_or_404(repo_id), okey)
 
 
 @app.delete("/api/repos/{repo_id}", status_code=204)
-def delete_repo(repo_id: str):
-    if _repo_or_404(repo_id).get("is_demo"):
-        raise HTTPException(403, "demo_protected")
+def delete_repo(repo_id: str, okey: str | None = Depends(owner_key)):
+    _writable(repo_id, okey)
     for t in ("tasks", "milestones", "analyses", "events"):
         db.execute(f"DELETE FROM {t} WHERE repo_id=?", (repo_id,))
     db.execute("DELETE FROM repos WHERE id=?", (repo_id,))
@@ -213,8 +266,9 @@ class AnalyzeReq(BaseModel):
 
 
 @app.post("/api/repos/{repo_id}/analyze", status_code=202)
-def analyze(repo_id: str, bg: BackgroundTasks, body: AnalyzeReq | None = None):
-    _repo_or_404(repo_id)
+def analyze(repo_id: str, bg: BackgroundTasks, body: AnalyzeReq | None = None,
+            okey: str | None = Depends(owner_key)):
+    _writable(repo_id, okey)
     started = request_analysis(repo_id)
     if started:
         bg.add_task(run_analysis, repo_id, "manual", bool(body and body.competitors))
@@ -232,7 +286,8 @@ def _analysis_public(a: dict) -> dict:
 
 
 @app.get("/api/repos/{repo_id}/analyses")
-def list_analyses(repo_id: str, limit: int = 30):
+def list_analyses(repo_id: str, limit: int = 30, okey: str | None = Depends(owner_key)):
+    _readable(repo_id, okey)
     rows = db.query(
         "SELECT id, trigger, head_sha, base_sha, status, tasks_total, tasks_done, tasks_in_progress, error, "
         "started_at, finished_at, changes_json FROM analyses WHERE repo_id=? ORDER BY started_at DESC LIMIT ?",
@@ -241,7 +296,8 @@ def list_analyses(repo_id: str, limit: int = 30):
 
 
 @app.get("/api/repos/{repo_id}/events")
-def list_events(repo_id: str, limit: int = 50):
+def list_events(repo_id: str, limit: int = 50, okey: str | None = Depends(owner_key)):
+    _readable(repo_id, okey)
     return db.query("SELECT * FROM events WHERE repo_id=? ORDER BY id DESC LIMIT ?", (repo_id, limit))
 
 
@@ -254,7 +310,8 @@ def _task_out(t: dict) -> dict:
 
 
 @app.get("/api/repos/{repo_id}/tasks")
-def list_tasks(repo_id: str, include_dropped: bool = False):
+def list_tasks(repo_id: str, include_dropped: bool = False, okey: str | None = Depends(owner_key)):
+    _readable(repo_id, okey)
     sql = "SELECT * FROM tasks WHERE repo_id=?" + ("" if include_dropped else " AND status != 'dropped'")
     tasks = [_task_out(t) for t in db.query(sql + " ORDER BY score DESC", (repo_id,))]
     milestones = db.query("SELECT * FROM milestones WHERE repo_id=? ORDER BY order_index", (repo_id,))
@@ -282,8 +339,8 @@ class TaskPatch(BaseModel):
 
 
 @app.post("/api/repos/{repo_id}/tasks", status_code=201)
-def create_task(repo_id: str, body: TaskCreate):
-    _repo_or_404(repo_id)
+def create_task(repo_id: str, body: TaskCreate, okey: str | None = Depends(owner_key)):
+    _writable(repo_id, okey)
     tid, ts = new_id("tk"), now_iso()
     db.execute(
         "INSERT INTO tasks (id, repo_id, milestone_id, title, description, category, urgency, importance, effort_days, "
@@ -294,10 +351,11 @@ def create_task(repo_id: str, body: TaskCreate):
 
 
 @app.patch("/api/tasks/{task_id}")
-def patch_task(task_id: str, body: TaskPatch):
+def patch_task(task_id: str, body: TaskPatch, okey: str | None = Depends(owner_key)):
     t = db.query_one("SELECT * FROM tasks WHERE id=?", (task_id,))
     if not t:
         raise HTTPException(404, "task not found")
+    _writable(t["repo_id"], okey)
     sets = body.model_dump(exclude_unset=True)
     ts = now_iso()
     if "status" in sets and sets["status"] != t["status"]:
@@ -321,16 +379,16 @@ def patch_task(task_id: str, body: TaskPatch):
 
 # ------------------------------------------------------------------ roadmap / progress
 @app.get("/api/repos/{repo_id}/roadmap")
-def roadmap(repo_id: str):
-    _repo_or_404(repo_id)
+def roadmap(repo_id: str, okey: str | None = Depends(owner_key)):
+    _readable(repo_id, okey)
     milestones = db.query("SELECT * FROM milestones WHERE repo_id=? ORDER BY order_index", (repo_id,))
     tasks = db.query("SELECT * FROM tasks WHERE repo_id=?", (repo_id,))
     return build_roadmap(milestones, tasks, settings.roadmap_lanes)
 
 
 @app.get("/api/repos/{repo_id}/progress")
-def progress(repo_id: str):
-    _repo_or_404(repo_id)
+def progress(repo_id: str, okey: str | None = Depends(owner_key)):
+    _readable(repo_id, okey)
     tasks = db.query("SELECT status, category, effort_days, milestone_id FROM tasks WHERE repo_id=? AND status != 'dropped'",
                      (repo_id,))
     history = db.query(
@@ -371,11 +429,13 @@ async def github_webhook(request: Request, bg: BackgroundTasks,
     except json.JSONDecodeError as e:
         raise HTTPException(400, "invalid json") from e
     full = (payload.get("repository") or {}).get("full_name")
-    repo = db.query_one("SELECT * FROM repos WHERE full_name=?", (full,)) if full else None
-    if not repo:
+    candidates = db.query("SELECT * FROM repos WHERE full_name=?", (full,)) if full else []
+    if not candidates:
         raise HTTPException(404, "unknown repository")
-    expected = "sha256=" + hmac.new(repo["webhook_secret"].encode(), raw, hashlib.sha256).hexdigest()
-    if not hmac.compare_digest(expected, x_hub_signature_256):
+    # 同じリポジトリを複数のブラウザが登録していることがあるので、署名が一致するものを選ぶ
+    repo = next((c for c in candidates if hmac.compare_digest(
+        "sha256=" + hmac.new(c["webhook_secret"].encode(), raw, hashlib.sha256).hexdigest(), x_hub_signature_256)), None)
+    if not repo:
         raise HTTPException(401, "invalid signature")
 
     if x_github_event == "ping":
@@ -414,8 +474,13 @@ def cron_poll(bg: BackgroundTasks, x_cron_token: str = Header(default="")):
     """Cloud Scheduler から定期実行. Webhook を設定できない repo も HEAD の変化で再分析する."""
     if settings.cron_token and not hmac.compare_digest(settings.cron_token, x_cron_token):
         raise HTTPException(401, "invalid cron token")
+    recovered = recover_stale()
+    for rid in recovered:
+        bg.add_task(run_analysis, rid, "pending", False)
     triggered = []
-    for r in db.query("SELECT * FROM repos WHERE status NOT IN ('queued','analyzing')"):
+    # 所有者のいないリポジトリ (ブラウザ単位の所有者導入前に登録されたもの) は誰も見られないので対象外
+    for r in db.query("SELECT * FROM repos WHERE status NOT IN ('queued','analyzing') "
+                      "AND (owner_key IS NOT NULL OR is_demo=1)"):
         try:
             gh = GitHubClient(decrypt(r["token_enc"]) or settings.github_token or None)
             head = gh.head_sha(r["owner"], r["name"], r["default_branch"] or "main")
@@ -426,7 +491,7 @@ def cron_poll(bg: BackgroundTasks, x_cron_token: str = Header(default="")):
             log_event(r["id"], "poll", sha=head[:7])
             bg.add_task(run_analysis, r["id"], "poll", False)
             triggered.append(r["full_name"])
-    return {"triggered": triggered}
+    return {"triggered": triggered, "recovered": recovered}
 
 
 # ------------------------------------------------------------------ i18n

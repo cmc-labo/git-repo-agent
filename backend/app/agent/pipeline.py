@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 
 from .. import db
@@ -19,7 +21,10 @@ from .schemas import CompetitorAnalysis, PlanResult, RepoInsight
 
 log = logging.getLogger(__name__)
 
-STALE_MINUTES = 15  # この時間 analyzing のままなら異常終了とみなす
+# 分析中は HEARTBEAT_SECONDS ごとに updated_at を更新する. STALE_MINUTES 更新がなければ
+# インスタンス停止などで中断されたとみなし、再実行の対象にする.
+HEARTBEAT_SECONDS = 60
+STALE_MINUTES = 3
 
 
 def compute_score(urgency: int, importance: int, effort_days: float) -> int:
@@ -36,9 +41,45 @@ def log_event(repo_id: str, kind: str, key: str | None = None, **params) -> None
                (repo_id, kind, message, now_iso()))
 
 
+def _stale_cutoff() -> str:
+    return (datetime.now(timezone.utc) - timedelta(minutes=STALE_MINUTES)).replace(microsecond=0).isoformat()
+
+
+@contextmanager
+def _heartbeat(repo_id: str):
+    stop = threading.Event()
+
+    def beat():
+        while not stop.wait(HEARTBEAT_SECONDS):
+            try:
+                db.execute("UPDATE repos SET updated_at=? WHERE id=?", (now_iso(), repo_id))
+            except Exception:  # noqa: BLE001
+                log.warning("heartbeat failed", exc_info=True)
+
+    t = threading.Thread(target=beat, daemon=True)
+    t.start()
+    try:
+        yield
+    finally:
+        stop.set()
+
+
+def recover_stale() -> list[str]:
+    """中断された分析 (heartbeat が途絶えたもの) を片付けて再実行枠を確保し、その repo id を返す."""
+    claimed = []
+    for r in db.query("SELECT id FROM repos WHERE status IN ('queued','analyzing') AND updated_at < ?",
+                      (_stale_cutoff(),)):
+        if request_analysis(r["id"]):  # 複数インスタンスでも 1 つだけが確保できる
+            db.execute("UPDATE analyses SET status='error', error='interrupted', finished_at=? "
+                       "WHERE repo_id=? AND status='running'", (now_iso(), r["id"]))
+            log_event(r["id"], "error", "analysis_interrupted")
+            claimed.append(r["id"])
+    return claimed
+
+
 def request_analysis(repo_id: str) -> bool:
     """分析枠を確保する. 実行中なら pending フラグを立てて False (実行後に1回だけ再実行される)."""
-    stale = (datetime.now(timezone.utc) - timedelta(minutes=STALE_MINUTES)).replace(microsecond=0).isoformat()
+    stale = _stale_cutoff()
     n = db.execute(
         "UPDATE repos SET status='queued', pending_reanalysis=0, updated_at=? "
         "WHERE id=? AND (status NOT IN ('queued','analyzing') OR updated_at < ?)",
@@ -54,7 +95,8 @@ def run_analysis(repo_id: str, trigger: str, force_competitors: bool = False) ->
     """request_analysis で枠を確保した後にバックグラウンドで呼ぶ."""
     while True:
         try:
-            _run_once(repo_id, trigger, force_competitors)
+            with _heartbeat(repo_id):
+                _run_once(repo_id, trigger, force_competitors)
         except Exception as e:  # noqa: BLE001
             log.exception("analysis failed")
             db.execute("UPDATE repos SET error=?, updated_at=? WHERE id=?", (str(e)[:1000], now_iso(), repo_id))

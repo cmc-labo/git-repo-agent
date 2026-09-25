@@ -21,11 +21,20 @@ from app.util import now_iso  # noqa: E402
 db.init_db()
 
 
-def _repo(rid="rp_test", full="acme/widget"):
+OWNER_A = "aaaaaaaa-1111-2222-3333-444444444444"
+OWNER_B = "bbbbbbbb-1111-2222-3333-444444444444"
+
+
+def _key(owner_id):
+    return hashlib.sha256(owner_id.encode()).hexdigest()
+
+
+def _repo(rid="rp_test", full="acme/widget", owner=None, status="idle", updated_at=None):
     db.execute(
-        "INSERT OR IGNORE INTO repos (id, owner, name, full_name, default_branch, webhook_secret, status, created_at, updated_at) "
-        "VALUES (?,?,?,?,?,?,?,?,?)",
-        (rid, *full.split("/"), full, "main", "s3cret", "idle", now_iso(), now_iso()))
+        "INSERT OR IGNORE INTO repos (id, owner, name, full_name, default_branch, webhook_secret, status, owner_key, "
+        "created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+        (rid, *full.split("/"), full, "main", "s3cret", status, _key(owner) if owner else None, now_iso(),
+         updated_at or now_iso()))
     return rid
 
 
@@ -114,7 +123,7 @@ def test_webhook_signature():
     assert r.json()["ignored"] == "non-default branch"
 
 
-def test_demo_repo_seeded_once_listed_last_and_protected(monkeypatch):
+def test_demo_repo_seeded_once_listed_last_and_readonly(monkeypatch):
     import app.main as m
 
     class FakeGH:
@@ -130,17 +139,81 @@ def test_demo_repo_seeded_once_listed_last_and_protected(monkeypatch):
     monkeypatch.setattr(m, "run_analysis", lambda rid, trig, comp: ran.append((rid, trig)))
     m.seed_demo_repo()
     m.seed_demo_repo()  # 2 回目は何もしない
-    demo = db.query("SELECT * FROM repos WHERE full_name='antirez/kilo'")
-    assert len(demo) == 1 and demo[0]["is_demo"] == 1 and demo[0]["language"] == "en"
-    assert len(ran) == 1
+    demo = db.query("SELECT * FROM repos WHERE full_name='antirez/kilo' AND is_demo=1")
+    assert len(demo) == 1 and demo[0]["language"] == "en" and demo[0]["owner_key"] is None
+    demo_id = demo[0]["id"]
 
-    _repo("rp_newest", "acme/newest")  # デモより後に登録されたユーザーのリポジトリ
+    # 完了した分析がなければ起動時に分析する
+    m.ensure_demo_analyzed()
+    assert ran == [(demo_id, "initial")]
+
+    _repo("rp_newest", "acme/newest", owner=OWNER_A)
     c = TestClient(app)
-    names = [r["full_name"] for r in c.get("/api/repos").json()]
-    assert names[-1] == "antirez/kilo" and names[0] != "antirez/kilo"
-    assert c.delete(f"/api/repos/{demo[0]['id']}").json()["detail"] == "demo_protected"
+    names = [r["full_name"] for r in c.get("/api/repos", headers={"X-Owner-Id": OWNER_A}).json()]
+    assert names == ["acme/newest", "antirez/kilo"]  # デモは最後尾
+    assert c.get(f"/api/repos/{demo_id}").status_code == 200  # 誰でも閲覧できる
+    assert "webhook_secret" not in c.get(f"/api/repos/{demo_id}").json()["repo"]
+    h = {"X-Owner-Id": OWNER_A}
+    assert c.delete(f"/api/repos/{demo_id}", headers=h).json()["detail"] == "demo_readonly"
+    assert c.post(f"/api/repos/{demo_id}/analyze", headers=h).json()["detail"] == "demo_readonly"
 
-    # 削除されても (DB から直接消しても) 再登録しない
-    db.execute("DELETE FROM repos WHERE full_name='antirez/kilo'")
+    # 削除されても再登録しない
+    db.execute("DELETE FROM repos WHERE id=?", (demo_id,))
     m.seed_demo_repo()
-    assert not db.query("SELECT id FROM repos WHERE full_name='antirez/kilo'")
+    assert not db.query("SELECT id FROM repos WHERE full_name='antirez/kilo' AND is_demo=1")
+
+
+def test_repos_are_isolated_per_browser():
+    rid = _repo("rp_own_a", "acme/private-thing", owner=OWNER_A)
+    task_id = "tk_own_a"
+    db.execute("INSERT INTO tasks (id, repo_id, title, status, created_at, updated_at) VALUES (?,?,?,?,?,?)",
+               (task_id, rid, "T", "todo", now_iso(), now_iso()))
+    c = TestClient(app)
+    a, b = {"X-Owner-Id": OWNER_A}, {"X-Owner-Id": OWNER_B}
+    assert "acme/private-thing" in [r["full_name"] for r in c.get("/api/repos", headers=a).json()]
+    assert "acme/private-thing" not in [r["full_name"] for r in c.get("/api/repos", headers=b).json()]
+    assert "acme/private-thing" not in [r["full_name"] for r in c.get("/api/repos").json()]
+    for path in ("", "/tasks", "/roadmap", "/progress", "/events", "/analyses"):
+        assert c.get(f"/api/repos/{rid}{path}", headers=b).status_code == 404, path
+        assert c.get(f"/api/repos/{rid}{path}", headers=a).status_code == 200, path
+    assert c.patch(f"/api/tasks/{task_id}", json={"status": "done"}, headers=b).status_code == 404
+    assert c.delete(f"/api/repos/{rid}", headers=b).status_code == 404
+    got = c.get(f"/api/repos/{rid}", headers=a).json()["repo"]
+    assert got["is_owner"] and got["webhook_secret"] == "s3cret" and "owner_key" not in got
+    assert c.post("/api/repos", json={"repo": "acme/x"}).json()["detail"] == "missing_owner"
+
+
+def test_interrupted_analysis_is_recovered():
+    from app.agent.pipeline import recover_stale
+    rid = _repo("rp_stale", "acme/stale", owner=OWNER_A, status="analyzing", updated_at="2020-01-01T00:00:00+00:00")
+    _repo("rp_fresh", "acme/fresh", owner=OWNER_A, status="analyzing")  # heartbeat が生きているものは対象外
+    db.execute("INSERT INTO analyses (id, repo_id, trigger, status, started_at) VALUES ('an_stale', ?, 'initial', "
+               "'running', '2020-01-01T00:00:00+00:00')", (rid,))
+    assert recover_stale() == [rid]
+    assert db.query_one("SELECT status FROM analyses WHERE id='an_stale'")["status"] == "error"
+    assert db.query_one("SELECT status FROM repos WHERE id=?", (rid,))["status"] == "queued"
+    assert recover_stale() == []  # 確保済みなので二重に拾わない
+
+
+def test_migration_drops_unique_full_name(tmp_path):
+    import sqlite3
+    path = tmp_path / "old.db"
+    con = sqlite3.connect(path)
+    con.execute("CREATE TABLE repos (id TEXT PRIMARY KEY, owner TEXT NOT NULL, name TEXT NOT NULL, "
+                "full_name TEXT NOT NULL UNIQUE, webhook_secret TEXT NOT NULL, status TEXT DEFAULT 'idle', "
+                "created_at TEXT NOT NULL, updated_at TEXT NOT NULL)")
+    con.execute("INSERT INTO repos VALUES ('rp_old','o','n','o/n','s','idle','t','t')")
+    con.commit()
+    con.close()
+    orig = db._db
+    db._db = db._SQLite(str(path))
+    try:
+        db.init_db()
+        db.init_db()  # 2 回目は何もしない
+        assert "UNIQUE" not in db.query_one("SELECT sql FROM sqlite_master WHERE name='repos'")["sql"].upper()
+        assert db.query_one("SELECT full_name, language, is_demo FROM repos WHERE id='rp_old'") == \
+            {"full_name": "o/n", "language": "ja", "is_demo": 0}
+        db.execute("INSERT INTO repos (id, owner, name, full_name, webhook_secret, created_at, updated_at) "
+                   "VALUES ('rp_dup','o','n','o/n','s2','t','t')")  # 同じ full_name を登録できる
+    finally:
+        db._db = orig

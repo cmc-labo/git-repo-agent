@@ -13,17 +13,22 @@ log = logging.getLogger(__name__)
 T = TypeVar("T", bound=BaseModel)
 
 _client = None
+GEMINI_TIMEOUT_MS = 150_000
 
 
 def client():
     global _client
     if _client is None:
         from google import genai
+        from google.genai import types
 
+        # 応答が返らないまま分析が止まらないようにタイムアウトを設定 (ms)
+        http = types.HttpOptions(timeout=GEMINI_TIMEOUT_MS)
         if settings.use_vertex:
-            _client = genai.Client(vertexai=True, project=settings.gcp_project, location=settings.gcp_location)
+            _client = genai.Client(vertexai=True, project=settings.gcp_project, location=settings.gcp_location,
+                                   http_options=http)
         else:
-            _client = genai.Client(api_key=settings.gemini_api_key)
+            _client = genai.Client(api_key=settings.gemini_api_key, http_options=http)
     return _client
 
 

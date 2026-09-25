@@ -26,6 +26,10 @@ gcloud iam service-accounts describe "$SA" >/dev/null 2>&1 || \
 gcloud projects add-iam-policy-binding "$PROJECT_ID" --member "serviceAccount:$SA" \
   --role roles/aiplatform.user --condition=None >/dev/null
 
+# 既存サービスなら URL は変わらないので、最初のデプロイに PUBLIC_BASE_URL を含める
+# (デプロイ後に env を更新するとリビジョンがもう 1 つ作られ、起動直後の分析が中断されるため)
+EXISTING_URL="$(gcloud run services describe "$SERVICE" --region "$REGION" --format 'value(status.url)' 2>/dev/null || true)"
+
 ENV_FILE="$(mktemp)"
 trap 'rm -f "$ENV_FILE"' EXIT
 cat > "$ENV_FILE" <<YAML
@@ -39,6 +43,7 @@ APP_SECRET: "${APP_SECRET}"
 CRON_TOKEN: "${CRON_TOKEN}"
 GITHUB_TOKEN: "${GITHUB_TOKEN}"
 YAML
+if [ -n "$EXISTING_URL" ]; then echo "PUBLIC_BASE_URL: \"${EXISTING_URL}\"" >> "$ENV_FILE"; fi
 
 # --no-cpu-throttling: レスポンス返却後のバックグラウンド分析 (BackgroundTasks) にも CPU を割り当てる
 gcloud run deploy "$SERVICE" --source backend --region "$REGION" \
@@ -47,8 +52,11 @@ gcloud run deploy "$SERVICE" --source backend --region "$REGION" \
   --env-vars-file "$ENV_FILE"
 
 URL="$(gcloud run services describe "$SERVICE" --region "$REGION" --format 'value(status.url)')"
-echo "PUBLIC_BASE_URL: \"${URL}\"" >> "$ENV_FILE"
-gcloud run services update "$SERVICE" --region "$REGION" --env-vars-file "$ENV_FILE" >/dev/null
+if [ -z "$EXISTING_URL" ]; then
+  # 初回デプロイのみ: URL が確定してから設定する (中断された分析は起動時の復旧処理で再実行される)
+  echo "PUBLIC_BASE_URL: \"${URL}\"" >> "$ENV_FILE"
+  gcloud run services update "$SERVICE" --region "$REGION" --env-vars-file "$ENV_FILE" >/dev/null
+fi
 
 # Webhook を設定していないリポジトリも 15 分ごとに HEAD を確認して再分析
 JOB="${SERVICE}-poll"

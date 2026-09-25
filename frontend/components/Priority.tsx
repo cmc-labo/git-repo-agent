@@ -20,7 +20,7 @@ export default function Priority({
   tasks: Task[];
   milestones: Milestone[];
   onOpenTask: (t: Task) => void;
-  onAddTask: () => void;
+  onAddTask?: () => void;
 }) {
   const { t } = useI18n();
   const [hideDone, setHideDone] = useState(true);
@@ -43,7 +43,7 @@ export default function Priority({
           {CATEGORIES.map((k) => <option key={k} value={k}>{catLabel(k)}</option>)}
         </select>
         <span className="spacer" />
-        <button className="btn" onClick={onAddTask}>{t("pr.addTask")}</button>
+        {onAddTask && <button className="btn" onClick={onAddTask}>{t("pr.addTask")}</button>}
       </div>
 
       <div className="card">

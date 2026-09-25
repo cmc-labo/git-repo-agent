@@ -12,8 +12,9 @@ const STATUSES = ["todo", "in_progress", "done", "dropped"] as const;
 export type TaskDraft = Partial<Task> & { title: string };
 
 export default function TaskDrawer({
-  task, milestones, allTasks, onClose, onSave,
+  task, milestones, allTasks, onClose, onSave, readOnly = false,
 }: {
+  readOnly?: boolean;
   task: Task | null; // null = 新規作成
   milestones: Milestone[];
   allTasks: Task[];
@@ -59,7 +60,7 @@ export default function TaskDrawer({
           <button className="btn sm" onClick={onClose} aria-label={t("common.close")}>✕</button>
         </div>
 
-        <div className="stack">
+        <fieldset className="stack" disabled={readOnly} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
           <div>
             <label className="field">{t("td.title")}</label>
             <input value={d.title} onChange={(e) => set("title", e.target.value)} />
@@ -97,7 +98,7 @@ export default function TaskDrawer({
               </select>
             </div>
           </div>
-        </div>
+        </fieldset>
 
         {task && (
           <div className="card" style={{ marginTop: 16, background: "var(--green-light)", borderColor: "var(--green-mid)" }}>
@@ -127,9 +128,9 @@ export default function TaskDrawer({
         {err && <div className="err" style={{ marginTop: 12 }}>{err}</div>}
         <div className="row" style={{ marginTop: 18, justifyContent: "flex-end" }}>
           <button className="btn" onClick={onClose}>{t("common.cancel")}</button>
-          <button className="btn primary" onClick={save} disabled={saving || !d.title.trim()}>
+          {!readOnly && <button className="btn primary" onClick={save} disabled={saving || !d.title.trim()}>
             {saving && <span className="spinner" />} {t("common.save")}
-          </button>
+          </button>}
         </div>
       </aside>
     </>

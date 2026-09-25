@@ -18,16 +18,18 @@ export default function Competitors({
   data: CompetitorAnalysis | null;
   updatedAt: string | null;
   busy: boolean;
-  onRefresh: () => void;
+  onRefresh?: () => void;
 }) {
   const { t, fmtDate } = useI18n();
   const head = (
     <div className="page-head">
       <span className="muted small">{t("comp.meta", { date: fmtDate(updatedAt) })}</span>
       <span className="spacer" />
-      <button className="btn" onClick={onRefresh} disabled={busy}>
-        {busy ? <span className="spinner" /> : "🔍"} {t("comp.refresh")}
-      </button>
+      {onRefresh && (
+        <button className="btn" onClick={onRefresh} disabled={busy}>
+          {busy ? <span className="spinner" /> : "🔍"} {t("comp.refresh")}
+        </button>
+      )}
     </div>
   );
   if (!data) return <>{head}<div className="card muted">{t("comp.none")}</div></>;

@@ -14,12 +14,11 @@ import httpx
 
 from .config import settings
 
-SCHEMA = [
-    """CREATE TABLE IF NOT EXISTS repos (
+REPOS_DDL = """CREATE TABLE IF NOT EXISTS repos (
         id TEXT PRIMARY KEY,
         owner TEXT NOT NULL,
         name TEXT NOT NULL,
-        full_name TEXT NOT NULL UNIQUE,
+        full_name TEXT NOT NULL,
         description TEXT,
         html_url TEXT,
         is_private INTEGER DEFAULT 0,
@@ -33,8 +32,14 @@ SCHEMA = [
         pending_reanalysis INTEGER DEFAULT 0,
         error TEXT,
         created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-    )""",
+        updated_at TEXT NOT NULL,
+        language TEXT DEFAULT 'ja',
+        is_demo INTEGER DEFAULT 0,
+        owner_key TEXT
+    )"""
+
+SCHEMA = [
+    REPOS_DDL,
     """CREATE TABLE IF NOT EXISTS analyses (
         id TEXT PRIMARY KEY,
         repo_id TEXT NOT NULL,
@@ -111,6 +116,13 @@ SCHEMA = [
 MIGRATIONS = [
     "ALTER TABLE repos ADD COLUMN language TEXT DEFAULT 'ja'",
     "ALTER TABLE repos ADD COLUMN is_demo INTEGER DEFAULT 0",
+    "ALTER TABLE repos ADD COLUMN owner_key TEXT",
+]
+
+# MIGRATIONS の後に作る (owner_key は古い DB では ALTER で追加されるため)
+INDEXES = [
+    "CREATE INDEX IF NOT EXISTS idx_repos_owner ON repos(owner_key)",
+    "CREATE INDEX IF NOT EXISTS idx_repos_full_name ON repos(full_name)",
 ]
 
 
@@ -215,3 +227,26 @@ def init_db() -> None:
         except Exception as e:  # noqa: BLE001
             if "duplicate column" not in str(e).lower():
                 raise
+    _drop_full_name_unique()
+    for stmt in INDEXES:
+        execute(stmt)
+
+
+def _drop_full_name_unique() -> None:
+    """ブラウザごとに同じリポジトリを登録できるよう、旧スキーマの full_name UNIQUE 制約を外す.
+
+    SQLite は制約だけを削除できないのでテーブルを作り直す. 複数インスタンスが同時に起動しても
+    app_meta への INSERT OR IGNORE で 1 つだけが実行する.
+    """
+    row = query_one("SELECT sql FROM sqlite_master WHERE type='table' AND name='repos'")
+    if not row or "UNIQUE" not in (row["sql"] or "").upper():
+        return
+    if not execute("INSERT OR IGNORE INTO app_meta (key, value) VALUES ('migration:repos_no_unique', 'running')"):
+        return
+    cols = ", ".join(c["name"] for c in query("PRAGMA table_info(repos)"))
+    execute("DROP TABLE IF EXISTS repos_v2")
+    execute(REPOS_DDL.replace("IF NOT EXISTS repos (", "repos_v2 (", 1))
+    execute(f"INSERT INTO repos_v2 ({cols}) SELECT {cols} FROM repos")
+    execute("DROP TABLE repos")
+    execute("ALTER TABLE repos_v2 RENAME TO repos")
+    execute("UPDATE app_meta SET value='done' WHERE key='migration:repos_no_unique'")

@@ -48,7 +48,7 @@ export default function ProgressView({
   progress: Progress | null;
   analyses: Analysis[];
   onOpenTask: (t: Task) => void;
-  onMove: (t: Task, s: Status) => void;
+  onMove?: (t: Task, s: Status) => void;
 }) {
   const [over, setOver] = useState<Status | null>(null);
   const { t, fmtDate } = useI18n();
@@ -81,7 +81,7 @@ export default function ProgressView({
 
       <div className="card">
         <h2 className="section">{t("pg.kanban")}</h2>
-        <p className="small muted" style={{ marginTop: -6 }}>{t("pg.kanbanDesc")}</p>
+        {onMove && <p className="small muted" style={{ marginTop: -6 }}>{t("pg.kanbanDesc")}</p>}
         <div className="kanban">
           {COLS.map((s) => {
             const items = tasks.filter((x) => x.status === s).sort((a, b) => b.score - a.score);
@@ -89,13 +89,13 @@ export default function ProgressView({
               <div
                 key={s}
                 className={`col ${over === s ? "drag-over" : ""}`}
-                onDragOver={(e) => { e.preventDefault(); setOver(s); }}
+                onDragOver={(e) => { if (!onMove) return; e.preventDefault(); setOver(s); }}
                 onDragLeave={() => setOver(null)}
                 onDrop={(e) => {
                   e.preventDefault();
                   setOver(null);
                   const t = tasks.find((x) => x.id === e.dataTransfer.getData("text/plain"));
-                  if (t && t.status !== s) onMove(t, s);
+                  if (t && t.status !== s) onMove?.(t, s);
                 }}
               >
                 <div className="col-head"><span className={`status ${s}`}>{t(`status.${s}`)}</span><span className="muted">{items.length}</span></div>
@@ -103,7 +103,7 @@ export default function ProgressView({
                   <div
                     key={x.id}
                     className="kcard"
-                    draggable
+                    draggable={!!onMove}
                     onDragStart={(e) => e.dataTransfer.setData("text/plain", x.id)}
                     onClick={() => onOpenTask(x)}
                   >
