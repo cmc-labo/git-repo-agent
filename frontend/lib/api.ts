@@ -16,6 +16,7 @@ export interface Repo {
   pending_reanalysis: number;
   error: string | null;
   has_token: boolean;
+  language: string | null;
   webhook_url?: string;
   webhook_secret?: string;
   tasks_total?: number;
@@ -181,13 +182,13 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
 export const api = {
   config: () => req<AppConfig>("/config"),
   repos: () => req<Repo[]>("/repos"),
-  createRepo: (repo: string, token?: string) =>
-    req<Repo>("/repos", { method: "POST", body: JSON.stringify({ repo, token: token || null }) }),
+  createRepo: (repo: string, language: string, token?: string) =>
+    req<Repo>("/repos", { method: "POST", body: JSON.stringify({ repo, language, token: token || null }) }),
   repo: (id: string) =>
     req<{ repo: Repo; latest_analysis: Analysis | null; competitors: CompetitorAnalysis | null }>(`/repos/${id}`),
   deleteRepo: (id: string) => req<void>(`/repos/${id}`, { method: "DELETE" }),
-  updateToken: (id: string, token: string) =>
-    req<Repo>(`/repos/${id}`, { method: "PATCH", body: JSON.stringify({ token }) }),
+  updateRepo: (id: string, body: { token?: string; language?: string }) =>
+    req<Repo>(`/repos/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   analyze: (id: string, competitors = false) =>
     req<{ started: boolean; queued: boolean }>(`/repos/${id}/analyze`, {
       method: "POST",
@@ -203,41 +204,6 @@ export const api = {
   roadmap: (id: string) => req<Roadmap>(`/repos/${id}/roadmap`),
   progress: (id: string) => req<Progress>(`/repos/${id}/progress`),
 };
-
-export const STATUS_LABEL: Record<string, string> = {
-  todo: "未対応",
-  in_progress: "処理中",
-  done: "完了",
-  dropped: "取り下げ",
-};
-
-export const CATEGORY_LABEL: Record<string, string> = {
-  feature: "機能",
-  bug: "バグ",
-  refactor: "リファクタ",
-  test: "テスト",
-  infra: "インフラ",
-  docs: "ドキュメント",
-  security: "セキュリティ",
-  ux: "UX",
-  research: "調査",
-};
-
-export const TRIGGER_LABEL: Record<string, string> = {
-  initial: "初回登録",
-  manual: "手動",
-  webhook: "Webhook",
-  poll: "定期チェック",
-  pending: "追加更新",
-};
-
-export function fmtDate(s: string | null | undefined, withTime = true): string {
-  if (!s) return "-";
-  const d = new Date(s);
-  const p = (n: number) => String(n).padStart(2, "0");
-  const base = `${d.getFullYear()}/${p(d.getMonth() + 1)}/${p(d.getDate())}`;
-  return withTime ? `${base} ${p(d.getHours())}:${p(d.getMinutes())}` : base;
-}
 
 export function quadrant(t: { urgency: number; importance: number }): 1 | 2 | 3 | 4 {
   // 1-5 の尺度で 4 以上を「高」とみなす (アイゼンハワーマトリクス)

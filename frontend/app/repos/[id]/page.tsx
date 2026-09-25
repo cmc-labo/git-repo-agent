@@ -3,8 +3,10 @@
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  Analysis, api, CompetitorAnalysis, EventItem, fmtDate, Milestone, Progress, Repo, Roadmap as RoadmapT, Status, Task,
+  Analysis, api, CompetitorAnalysis, EventItem, Milestone, Progress, Repo, Roadmap as RoadmapT, Status, Task,
 } from "@/lib/api";
+import { useI18n } from "@/lib/i18n";
+import { errorText } from "@/lib/errors";
 import { RepoStatus } from "@/components/StatusBadge";
 import Overview from "@/components/Overview";
 import Competitors from "@/components/Competitors";
@@ -15,18 +17,19 @@ import Settings from "@/components/Settings";
 import TaskDrawer, { TaskDraft } from "@/components/TaskDrawer";
 
 const TABS = [
-  { key: "overview", label: "ダッシュボード", ico: "▦" },
-  { key: "competitors", label: "競合分析", ico: "◎" },
-  { key: "priority", label: "タスク優先度", ico: "▤" },
-  { key: "roadmap", label: "ロードマップ", ico: "▬" },
-  { key: "progress", label: "進捗管理", ico: "☑" },
-  { key: "settings", label: "設定", ico: "⚙" },
+  { key: "overview", ico: "▦" },
+  { key: "competitors", ico: "◎" },
+  { key: "priority", ico: "▤" },
+  { key: "roadmap", ico: "▬" },
+  { key: "progress", ico: "☑" },
+  { key: "settings", ico: "⚙" },
 ] as const;
 type TabKey = (typeof TABS)[number]["key"];
 
 export default function RepoPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
+  const { t, fmtDate } = useI18n();
   const [tab, setTab] = useState<TabKey>("overview");
   const [repo, setRepo] = useState<Repo | null>(null);
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
@@ -58,9 +61,9 @@ export default function RepoPage() {
       lastSeen.current = `${r.repo.status}|${r.repo.last_analyzed_at}|${ev[0]?.id ?? ""}`;
       setError(null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(errorText(e, t));
     }
-  }, [id]);
+  }, [id, t]);
 
   // 軽いポーリング: 状態やイベントが変わったら全体を再取得 (Webhook による自動再分析を画面に反映)
   const poll = useCallback(async () => {
@@ -117,43 +120,41 @@ export default function RepoPage() {
   }
 
   if (error && !repo) return <div className="container"><div className="err">{error}</div></div>;
-  if (!repo) return <div className="container muted"><span className="spinner" /> 読み込み中...</div>;
+  if (!repo) return <div className="container muted"><span className="spinner" /> {t("common.loading")}</div>;
 
   return (
     <div className="shell">
       <nav className="sidebar">
         <div className="proj">
           <div className="name">{repo.full_name}</div>
-          <div className="sub">{repo.is_private ? "🔒 private" : "public"} · {repo.default_branch}</div>
+          <div className="sub">{repo.is_private ? `🔒 ${t("common.private")}` : t("common.public")} · {repo.default_branch}</div>
         </div>
-        {TABS.map((t) => (
-          <button key={t.key} className={`nav-item ${tab === t.key ? "active" : ""}`} onClick={() => selectTab(t.key)}>
-            <span className="ico">{t.ico}</span>
-            {t.label}
+        {TABS.map((x) => (
+          <button key={x.key} className={`nav-item ${tab === x.key ? "active" : ""}`} onClick={() => selectTab(x.key)}>
+            <span className="ico">{x.ico}</span>
+            {t(`tab.${x.key}`)}
           </button>
         ))}
       </nav>
 
       <main className="main">
         <div className="page-head">
-          <h1>{TABS.find((t) => t.key === tab)?.label}</h1>
+          <h1>{t(`tab.${tab}`)}</h1>
           <RepoStatus status={repo.status} />
-          {repo.pending_reanalysis ? <span className="tag">更新待ちあり</span> : null}
+          {repo.pending_reanalysis ? <span className="tag">{t("repo.pending")}</span> : null}
           <span className="spacer" />
           <span className="small muted">
-            最終分析 {fmtDate(repo.last_analyzed_at)}
+            {t("repo.lastAnalysis", { date: fmtDate(repo.last_analyzed_at) })}
             {repo.last_analyzed_sha && <span className="mono"> @{repo.last_analyzed_sha.slice(0, 7)}</span>}
           </span>
-          {repo.html_url && <a className="btn sm" href={repo.html_url} target="_blank" rel="noreferrer">GitHub ↗</a>}
+          {repo.html_url && <a className="btn sm" href={repo.html_url} target="_blank" rel="noreferrer">{t("common.github")}</a>}
           <button className="btn primary" onClick={() => reanalyze(false)} disabled={busy}>
-            {busy ? <span className="spinner" /> : "⟳"} {busy ? "分析中..." : "今すぐ再分析"}
+            {busy ? <span className="spinner" /> : "⟳"} {busy ? t("repo.analyzing") : t("repo.reanalyze")}
           </button>
         </div>
-        {repo.status === "error" && repo.error && <div className="err" style={{ marginBottom: 14 }}>直近の分析でエラー: {repo.error}</div>}
+        {repo.status === "error" && repo.error && <div className="err" style={{ marginBottom: 14 }}>{t("repo.lastError", { error: repo.error })}</div>}
         {analysis?.changes?.demo && (
-          <div className="notice" style={{ marginBottom: 14 }}>
-            DEMO MODE: Gemini の認証情報が未設定のため、AI 出力はサンプルです (GitHub のデータは実データ)。
-          </div>
+          <div className="notice" style={{ marginBottom: 14 }}>{t("repo.demoNotice")}</div>
         )}
 
         {tab === "overview" && (
@@ -169,8 +170,8 @@ export default function RepoPage() {
         )}
         {tab === "roadmap" && (
           <Roadmap data={roadmap} onOpenTask={(tid) => {
-            const t = tasks.find((x) => x.id === tid);
-            if (t) setDrawer({ task: t });
+            const found = tasks.find((x) => x.id === tid);
+            if (found) setDrawer({ task: found });
           }} />
         )}
         {tab === "progress" && (
@@ -180,7 +181,8 @@ export default function RepoPage() {
         {tab === "settings" && (
           <Settings
             repo={repo}
-            onSaveToken={async (tok) => { await api.updateToken(id, tok); await loadAll(); }}
+            onSaveToken={async (tok) => { await api.updateRepo(id, { token: tok }); await loadAll(); }}
+            onSaveLanguage={async (language) => { await api.updateRepo(id, { language }); await reanalyze(false); await loadAll(); }}
             onDelete={async () => { await api.deleteRepo(id); router.push("/"); }}
           />
         )}

@@ -1,22 +1,25 @@
-import { STATUS_LABEL } from "@/lib/api";
+"use client";
 
-const REPO_STATUS: Record<string, string> = { idle: "最新", queued: "待機中", analyzing: "分析中", error: "エラー" };
+import { MessageKey, useI18n } from "@/lib/i18n";
 
 export function TaskStatus({ status }: { status: string }) {
-  return <span className={`status ${status}`}>{STATUS_LABEL[status] ?? status}</span>;
+  const { t } = useI18n();
+  return <span className={`status ${status}`}>{t(`status.${status}` as MessageKey)}</span>;
 }
 
 export function RepoStatus({ status }: { status: string }) {
+  const { t } = useI18n();
   const busy = status === "queued" || status === "analyzing";
   return (
     <span className={`status ${status}`}>
       {busy && "⟳ "}
-      {REPO_STATUS[status] ?? status}
+      {t(`repoStatus.${status}` as MessageKey)}
     </span>
   );
 }
 
 export function Score({ value }: { value: number }) {
+  const { t } = useI18n();
   const cls = value >= 75 ? "s-high" : value >= 55 ? "s-mid" : "s-low";
-  return <span className={`score ${cls}`} title="優先度スコア (緊急度×重要度 − 工数)">{value}</span>;
+  return <span className={`score ${cls}`} title={t("score.tooltip")}>{value}</span>;
 }

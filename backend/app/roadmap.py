@@ -67,7 +67,7 @@ def build_roadmap(milestones: list[dict], tasks: list[dict], lanes: int, today: 
 
     out_ms = []
     all_dates: list[date] = []
-    groups = milestones + [{"id": "__none__", "title": "未分類", "goal": ""}]
+    groups = milestones + [{"id": "__none__", "title": "", "goal": ""}]  # 画面側で「未分類」と表示
     for m in groups:
         if m["id"] == "__none__":
             mts = [t for t in live if t.get("milestone_id") not in ms_order]

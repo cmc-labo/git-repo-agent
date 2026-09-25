@@ -3,11 +3,15 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useCallback, useEffect, useState } from "react";
-import { api, fmtDate, Repo } from "@/lib/api";
+import { api, Repo } from "@/lib/api";
 import { RepoStatus } from "@/components/StatusBadge";
+import { useI18n } from "@/lib/i18n";
+import { findLanguage } from "@/lib/i18n/languages";
+import { errorText } from "@/lib/errors";
 
 export default function Home() {
   const router = useRouter();
+  const { t, lang, fmtDate } = useI18n();
   const [repos, setRepos] = useState<Repo[] | null>(null);
   const [repoInput, setRepoInput] = useState("");
   const [token, setToken] = useState("");
@@ -31,10 +35,10 @@ export default function Home() {
     setBusy(true);
     setError(null);
     try {
-      const r = await api.createRepo(repoInput.trim(), token.trim() || undefined);
+      const r = await api.createRepo(repoInput.trim(), lang || "en", token.trim() || undefined);
       router.push(`/repos/${r.id}`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(errorText(err, t));
       setBusy(false);
     }
   }
@@ -42,44 +46,42 @@ export default function Home() {
   return (
     <div className="container">
       <div className="card" style={{ marginBottom: 24 }}>
-        <h2 className="section">リポジトリを登録</h2>
-        <p className="muted small" style={{ marginTop: -4 }}>
-          登録すると、エージェントがリポジトリを読み込み、競合サービスを調査し、優先度付きのタスクとロードマップを作成します。
-          以降は GitHub の更新 (push / PR マージ / Issue) を検知するたびに自動で再分析します。
-        </p>
+        <h2 className="section">{t("home.registerTitle")}</h2>
+        <p className="muted small" style={{ marginTop: -4 }}>{t("home.registerDesc")}</p>
         <form onSubmit={submit} className="stack">
           <div className="row" style={{ flexWrap: "nowrap" }}>
             <input
-              placeholder="owner/repo または https://github.com/owner/repo"
+              placeholder={t("home.placeholder")}
               value={repoInput}
               onChange={(e) => setRepoInput(e.target.value)}
               disabled={busy}
             />
             <button className="btn primary" disabled={busy || !repoInput.trim()} style={{ whiteSpace: "nowrap" }}>
-              {busy ? <span className="spinner" /> : "＋"} 登録して分析
+              {busy ? <span className="spinner" /> : "＋"} {t("home.submit")}
             </button>
           </div>
-          <div>
+          <div className="row">
             <button type="button" className="btn sm" onClick={() => setShowToken((v) => !v)}>
-              🔒 private リポジトリの場合
+              {t("home.privateToggle")}
             </button>
+            <span className="faint small">{t("home.analysisLanguage", { lang: findLanguage(lang)?.native ?? "English" })}</span>
           </div>
           {showToken && (
             <div>
-              <label className="field">GitHub トークン (Fine-grained PAT: Contents / Issues / Pull requests / Metadata の Read 権限)</label>
+              <label className="field">{t("home.tokenLabel")}</label>
               <input type="password" value={token} onChange={(e) => setToken(e.target.value)} placeholder="github_pat_..." />
-              <div className="faint small">トークンはサーバー側で暗号化して保存され、画面には再表示されません。</div>
+              <div className="faint small">{t("home.tokenNote")}</div>
             </div>
           )}
           {error && <div className="err">{error}</div>}
         </form>
       </div>
 
-      <h2 className="section">観測中のリポジトリ</h2>
+      <h2 className="section">{t("home.watching")}</h2>
       {repos === null ? (
-        <div className="muted"><span className="spinner" /> 読み込み中...</div>
+        <div className="muted"><span className="spinner" /> {t("common.loading")}</div>
       ) : repos.length === 0 ? (
-        <div className="card muted">まだリポジトリがありません。上のフォームから登録してください。</div>
+        <div className="card muted">{t("home.empty")}</div>
       ) : (
         <div className="grid cols-3">
           {repos.map((r) => {
@@ -92,20 +94,18 @@ export default function Home() {
                   <RepoStatus status={r.status} />
                 </div>
                 <div className="muted small" style={{ minHeight: 40, margin: "6px 0 10px" }}>
-                  {r.description || "(説明なし)"}
+                  {r.description || t("home.noDescription")}
                 </div>
                 <div className="row small muted" style={{ justifyContent: "space-between" }}>
-                  <span>
-                    タスク {r.tasks_done}/{total} 完了 · 処理中 {r.tasks_in_progress}
-                  </span>
+                  <span>{t("home.cardTasks", { done: r.tasks_done, total, ip: r.tasks_in_progress })}</span>
                   <span>{pct}%</span>
                 </div>
                 <div className="progress" style={{ margin: "6px 0 10px" }}>
                   <div style={{ width: `${pct}%` }} />
                 </div>
                 <div className="row small faint">
-                  {r.is_private && <span className="tag">private</span>}
-                  <span>最終分析 {fmtDate(r.last_analyzed_at)}</span>
+                  {r.is_private && <span className="tag">{t("common.private")}</span>}
+                  <span>{t("home.cardLastAnalysis", { date: fmtDate(r.last_analyzed_at) })}</span>
                   {r.last_analyzed_sha && <span className="mono">@{r.last_analyzed_sha.slice(0, 7)}</span>}
                 </div>
               </Link>

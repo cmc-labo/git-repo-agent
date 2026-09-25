@@ -1,18 +1,25 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import TopBar from "@/components/TopBar";
+import Footer from "@/components/Footer";
+import LanguagePicker from "@/components/LanguagePicker";
+import { I18nProvider } from "@/lib/i18n";
 
 export const metadata: Metadata = {
   title: "Git Repository Agent",
-  description: "リポジトリを継続的に観測し、競合を分析し、次にやるべきことを更新し続ける開発支援エージェント",
+  description: "An agent that watches your GitHub repository, analyzes competitors and keeps telling you what to do next.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="ja">
+    <html lang="en">
       <body>
-        <TopBar />
-        {children}
+        <I18nProvider>
+          <TopBar />
+          <div className="page">{children}</div>
+          <Footer />
+          <LanguagePicker />
+        </I18nProvider>
       </body>
     </html>
   );

@@ -29,7 +29,9 @@ def compute_score(urgency: int, importance: int, effort_days: float) -> int:
     return max(0, min(100, round(base - penalty)))
 
 
-def log_event(repo_id: str, kind: str, message: str) -> None:
+def log_event(repo_id: str, kind: str, key: str | None = None, **params) -> None:
+    """アクティビティを記録. 文言は画面側で翻訳するため {"k": 翻訳キー, "p": パラメータ} を保存する."""
+    message = json.dumps({"k": key or kind, "p": params}, ensure_ascii=False)
     db.execute("INSERT INTO events (repo_id, kind, message, created_at) VALUES (?,?,?,?)",
                (repo_id, kind, message, now_iso()))
 
@@ -58,7 +60,7 @@ def run_analysis(repo_id: str, trigger: str, force_competitors: bool = False) ->
             db.execute("UPDATE repos SET error=?, updated_at=? WHERE id=?", (str(e)[:1000], now_iso(), repo_id))
             db.execute("UPDATE analyses SET status='error', error=?, finished_at=? WHERE repo_id=? AND status='running'",
                        (str(e)[:1000], now_iso(), repo_id))
-            log_event(repo_id, "error", f"分析に失敗しました: {str(e)[:300]}")
+            log_event(repo_id, "error", "analysis_failed", error=str(e)[:300])
         # 実行中に更新が来ていたらもう一度 (pending を消費して queued に戻す)
         db.execute(
             "UPDATE repos SET status = CASE WHEN pending_reanalysis=1 THEN 'queued' "
@@ -96,15 +98,16 @@ def _run_once(repo_id: str, trigger: str, force_competitors: bool) -> None:
         "INSERT INTO analyses (id, repo_id, trigger, head_sha, base_sha, status, started_at) VALUES (?,?,?,?,?,?,?)",
         (analysis_id, repo_id, trigger, head, base, "running", started),
     )
-    log_event(repo_id, "analysis_started",
-              f"分析開始 ({_trigger_label(trigger)}) @ {head[:7] if head else '-'}")
+    log_event(repo_id, "analysis_started", trigger=trigger, sha=head[:7] if head else "-")
 
     use_llm = settings.gemini_available
+    lang = repo.get("language") or "ja"
+    system = prompts.system(lang)
     ctx = collect_context(gh, owner, name, meta, head, base)
 
     # ① リポジトリ理解
     if use_llm:
-        insight = llm.generate_json(prompts.SYSTEM, prompts.insight_prompt(ctx), RepoInsight)
+        insight = llm.generate_json(system, prompts.insight_prompt(ctx), RepoInsight)
     else:
         insight = demo.insight(ctx)
     insight_d = insight.model_dump()
@@ -118,12 +121,12 @@ def _run_once(repo_id: str, trigger: str, force_competitors: bool) -> None:
     )
     if need_comp:
         try:
-            competitors_d = _analyze_competitors(gh, ctx, insight_d, use_llm)
+            competitors_d = _analyze_competitors(gh, ctx, insight_d, use_llm, system)
             db.execute("UPDATE repos SET competitors_updated_at=? WHERE id=?", (now_iso(), repo_id))
-            log_event(repo_id, "competitors", f"競合分析を更新 ({len(competitors_d['competitors'])} 件)")
+            log_event(repo_id, "competitors", n=len(competitors_d["competitors"]))
         except Exception as e:  # noqa: BLE001  競合分析の失敗で全体を止めない
             log.exception("competitor analysis failed")
-            log_event(repo_id, "error", f"競合分析に失敗: {str(e)[:300]}")
+            log_event(repo_id, "error", "competitors_failed", error=str(e)[:300])
 
     # ③ 計画
     milestones = db.query("SELECT id, title, goal FROM milestones WHERE repo_id=? ORDER BY order_index", (repo_id,))
@@ -133,7 +136,7 @@ def _run_once(repo_id: str, trigger: str, force_competitors: bool) -> None:
     is_initial = not tasks
     if use_llm:
         plan = llm.generate_json(
-            prompts.SYSTEM,
+            system,
             prompts.plan_prompt(ctx, insight_d, competitors_d, milestones, tasks, is_initial),
             PlanResult,
         )
@@ -165,12 +168,7 @@ def _run_once(repo_id: str, trigger: str, force_competitors: bool) -> None:
     db.execute("UPDATE repos SET last_analyzed_sha=?, last_analyzed_at=? WHERE id=?", (head, now_iso(), repo_id))
     n_new = sum(1 for a in applied if a["type"] == "created")
     n_upd = len(applied) - n_new
-    log_event(repo_id, "analysis_completed", f"分析完了: 新規タスク {n_new} 件 / 更新 {n_upd} 件 — {plan.change_summary}")
-
-
-def _trigger_label(trigger: str) -> str:
-    return {"initial": "初回登録", "manual": "手動", "webhook": "GitHub Webhook", "poll": "定期チェック",
-            "pending": "実行中に受けた更新"}.get(trigger, trigger)
+    log_event(repo_id, "analysis_completed", created=n_new, updated=n_upd, summary=plan.change_summary)
 
 
 def _previous_competitors(repo_id: str) -> dict | None:
@@ -180,7 +178,7 @@ def _previous_competitors(repo_id: str) -> dict | None:
     return json.loads(r["competitors_json"]) if r else None
 
 
-def _analyze_competitors(gh: GitHubClient, ctx: dict, insight: dict, use_llm: bool) -> dict:
+def _analyze_competitors(gh: GitHubClient, ctx: dict, insight: dict, use_llm: bool, system: str) -> dict:
     gh_repos = []
     q = insight.get("github_search_query") or ""
     if q:
@@ -192,9 +190,9 @@ def _analyze_competitors(gh: GitHubClient, ctx: dict, insight: dict, use_llm: bo
         result = demo.competitors(gh_repos).model_dump()
         result.update(sources=[], github_similar=gh_repos)
         return result
-    research, sources = llm.grounded_search(prompts.competitor_search_prompt(insight, ctx))
+    research, sources = llm.grounded_search(system + "\n\n" + prompts.competitor_search_prompt(insight, ctx))
     structured = llm.generate_json(
-        prompts.SYSTEM, prompts.competitor_structure_prompt(insight, research, gh_repos, sources), CompetitorAnalysis)
+        system, prompts.competitor_structure_prompt(insight, research, gh_repos, sources), CompetitorAnalysis)
     result = structured.model_dump()
     result.update(sources=sources, github_similar=gh_repos)
     return result
@@ -259,7 +257,7 @@ def _apply_plan(repo_id: str, analysis_id: str, plan: PlanResult) -> list[dict]:
             "reason": u.reason,
         })
         if sets.get("status") == "done":
-            log_event(repo_id, "task_completed", f"タスク完了を検知: {t['title']} — {u.reason}")
+            log_event(repo_id, "task_completed", title=t["title"], reason=u.reason)
 
     # --- 新規タスク ---
     titles = {t["title"].strip().lower(): tid for tid, t in tasks.items() if t["status"] != "dropped"}

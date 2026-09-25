@@ -94,6 +94,18 @@ SCHEMA = [
         created_at TEXT NOT NULL
     )""",
     "CREATE INDEX IF NOT EXISTS idx_events_repo ON events(repo_id, id)",
+    """CREATE TABLE IF NOT EXISTS translations (
+        lang TEXT NOT NULL,
+        hash TEXT NOT NULL,
+        entries_json TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (lang, hash)
+    )""",
+]
+
+# 既存 DB に後から追加したカラム (SQLite は ADD COLUMN IF NOT EXISTS がないので失敗は無視する)
+MIGRATIONS = [
+    "ALTER TABLE repos ADD COLUMN language TEXT DEFAULT 'ja'",
 ]
 
 
@@ -192,3 +204,9 @@ def execute(sql: str, params: Iterable[Any] = ()) -> int:
 def init_db() -> None:
     for stmt in SCHEMA:
         execute(stmt)
+    for stmt in MIGRATIONS:
+        try:
+            execute(stmt)
+        except Exception as e:  # noqa: BLE001
+            if "duplicate column" not in str(e).lower():
+                raise

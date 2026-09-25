@@ -11,15 +11,15 @@ from pydantic import BaseModel, Field
 
 # ---------- Step 1: リポジトリ理解 ----------
 class RepoInsight(BaseModel):
-    summary: str = Field(description="プロダクトの概要 (日本語, 2-3文)")
-    product_category: str = Field(description="プロダクトのカテゴリ (例: タスク管理SaaS, CLIツール)")
+    summary: str = Field(description="Product summary (2-3 sentences)")
+    product_category: str = Field(description="Product category (e.g. task-management SaaS, CLI tool)")
     target_users: str
     tech_stack: list[str]
-    implemented_features: list[str] = Field(description="実装済みと判断できる主要機能")
+    implemented_features: list[str] = Field(description="Main features that are evidently implemented")
     development_phase: Literal["idea", "prototype", "mvp", "beta", "production"]
-    health_notes: list[str] = Field(description="テスト/CI/ドキュメント等の開発体制に関する所見")
-    search_keywords: list[str] = Field(description="競合を Web 検索するための英語/日本語キーワード (3-5個)")
-    github_search_query: str = Field(description="GitHub リポジトリ検索用のクエリ (英語, 2-4語)")
+    health_notes: list[str] = Field(description="Observations on engineering health: tests, CI, docs, etc.")
+    search_keywords: list[str] = Field(description="3-5 keywords for web-searching competitors")
+    github_search_query: str = Field(description="GitHub repository search query (English, 2-4 words)")
 
 
 # ---------- Step 2: 競合分析 ----------
@@ -30,20 +30,20 @@ class Competitor(BaseModel):
     description: str
     strengths: list[str]
     weaknesses: list[str]
-    feature_gap: list[str] = Field(description="競合にあって自リポジトリにない機能")
-    threat_level: int = Field(ge=1, le=5, description="脅威度 1-5")
+    feature_gap: list[str] = Field(description="Features the competitor has that this product lacks")
+    threat_level: int = Field(ge=1, le=5, description="Threat level 1-5")
 
 
 class CompetitorAnalysis(BaseModel):
     market_overview: str
     competitors: list[Competitor]
-    differentiation: list[str] = Field(description="自プロダクトが取るべき差別化ポイント")
-    tech_trends: list[str] = Field(description="この領域の技術トレンド・採用すべき技術要素")
+    differentiation: list[str] = Field(description="Differentiation points this product should pursue")
+    tech_trends: list[str] = Field(description="Technology trends / technologies worth adopting in this space")
 
 
 # ---------- Step 3: 計画 (初回/差分更新共通) ----------
 class MilestonePlan(BaseModel):
-    key: str = Field(description="既存マイルストーンは既存ID, 新規は 'new-' で始まる任意のキー")
+    key: str = Field(description="Existing id for existing milestones; any key starting with 'new-' for new ones")
     title: str
     goal: str
 
@@ -52,12 +52,12 @@ class NewTask(BaseModel):
     title: str
     description: str
     category: Literal["feature", "bug", "refactor", "test", "infra", "docs", "security", "ux", "research"]
-    urgency: int = Field(ge=1, le=5, description="緊急度 1-5")
-    importance: int = Field(ge=1, le=5, description="重要度 1-5")
-    effort_days: float = Field(description="想定工数(人日)")
+    urgency: int = Field(ge=1, le=5, description="Urgency 1-5")
+    importance: int = Field(ge=1, le=5, description="Importance 1-5")
+    effort_days: float = Field(description="Estimated effort in person-days")
     milestone_key: str
-    rationale: str = Field(description="この優先度にした理由 (競合・開発状況を根拠に)")
-    depends_on_titles: list[str] = Field(default_factory=list, description="依存する他タスクのタイトル")
+    rationale: str = Field(description="Why this priority (grounded in competitors and development status)")
+    depends_on_titles: list[str] = Field(default_factory=list, description="Titles of tasks this depends on")
 
 
 class TaskUpdate(BaseModel):
@@ -67,13 +67,23 @@ class TaskUpdate(BaseModel):
     importance: int | None = Field(default=None, ge=1, le=5)
     effort_days: float | None = None
     milestone_key: str | None = None
-    reason: str = Field(description="変更理由 (完了判定ならコミット/PR等の根拠)")
+    reason: str = Field(description="Reason for the change (for completion: the evidencing commit/PR)")
 
 
 class PlanResult(BaseModel):
-    change_summary: str = Field(description="今回の分析で何が変わったか (日本語, 2-4文)")
-    progress_assessment: str = Field(description="現在の開発状況の評価")
-    next_actions: list[str] = Field(description="今すぐやるべきこと トップ3")
+    change_summary: str = Field(description="What changed in this analysis (2-4 sentences)")
+    progress_assessment: str = Field(description="Assessment of the current development status")
+    next_actions: list[str] = Field(description="Top 3 things to do right now")
     milestones: list[MilestonePlan]
     task_updates: list[TaskUpdate]
     new_tasks: list[NewTask]
+
+
+# ---------- UI 翻訳 ----------
+class TranslationItem(BaseModel):
+    key: str
+    text: str
+
+
+class TranslationResult(BaseModel):
+    items: list[TranslationItem]

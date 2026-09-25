@@ -4,6 +4,8 @@ import hashlib
 import hmac
 import json
 import logging
+import re
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 
 from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Request
@@ -11,7 +13,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from . import db
+from .agent import llm, prompts
 from .agent.pipeline import compute_score, log_event, request_analysis, run_analysis
+from .agent.schemas import TranslationResult
 from .config import settings
 from .github_client import GitHubClient, GitHubError, parse_repo_ref
 from .roadmap import build_roadmap
@@ -20,6 +24,8 @@ from .util import decrypt, encrypt, new_id, new_secret, now_iso
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("app")
 
+# BCP-47 (例: ja, en, pt-BR, zh-Hant, es-419)
+LANG_PATTERN = r"^[a-z]{2,3}(-[A-Za-z0-9]{2,8}){0,2}$"
 
 
 @asynccontextmanager
@@ -60,7 +66,7 @@ def _loads(s: str | None):
 
 # ------------------------------------------------------------------ misc
 @app.get("/api/health")
-def healthz():
+def health():
     return {"ok": True}
 
 
@@ -76,12 +82,14 @@ def get_config():
 
 # ------------------------------------------------------------------ repos
 class RepoCreate(BaseModel):
-    repo: str = Field(description="owner/repo または GitHub URL")
-    token: str | None = Field(default=None, description="private リポジトリ用 GitHub トークン (read 権限)")
+    repo: str = Field(description="owner/repo or a GitHub URL")
+    token: str | None = Field(default=None, description="GitHub token for private repositories (read access)")
+    language: str = Field(default="en", pattern=LANG_PATTERN, description="Output language of the analysis")
 
 
 class RepoPatch(BaseModel):
     token: str | None = None
+    language: str | None = Field(default=None, pattern=LANG_PATTERN)
 
 
 @app.get("/api/repos")
@@ -106,26 +114,26 @@ def create_repo(body: RepoCreate, bg: BackgroundTasks):
     try:
         owner, name = parse_repo_ref(body.repo)
     except ValueError as e:
-        raise HTTPException(400, str(e)) from e
+        raise HTTPException(400, "invalid_repo_ref") from e
     token = (body.token or "").strip() or None
     try:
         meta = GitHubClient(token or settings.github_token or None).repo(owner, name)
     except GitHubError as e:
         if e.status in (401, 403, 404):
-            raise HTTPException(400, "リポジトリにアクセスできません。private の場合は read 権限のあるトークンを指定してください") from e
+            raise HTTPException(400, "repo_inaccessible") from e
         raise HTTPException(502, str(e)) from e
     full = meta["full_name"]
     if db.query_one("SELECT id FROM repos WHERE full_name=?", (full,)):
-        raise HTTPException(409, f"{full} は登録済みです")
+        raise HTTPException(409, "repo_exists")
     rid = new_id("rp")
     ts = now_iso()
     db.execute(
         "INSERT INTO repos (id, owner, name, full_name, description, html_url, is_private, default_branch, token_enc, "
-        "webhook_secret, status, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "webhook_secret, status, language, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (rid, meta["owner"]["login"], meta["name"], full, meta.get("description"), meta.get("html_url"),
-         int(meta.get("private", False)), meta.get("default_branch"), encrypt(token), new_secret(), "idle", ts, ts),
+         int(meta.get("private", False)), meta.get("default_branch"), encrypt(token), new_secret(), "idle", body.language, ts, ts),
     )
-    log_event(rid, "registered", f"{full} を登録しました")
+    log_event(rid, "registered", repo=full)
     if request_analysis(rid):
         bg.add_task(run_analysis, rid, "initial", True)
     return _public_repo(_repo_or_404(rid), with_secret=True)
@@ -152,6 +160,8 @@ def patch_repo(repo_id: str, body: RepoPatch):
     if body.token is not None:
         db.execute("UPDATE repos SET token_enc=?, updated_at=? WHERE id=?",
                    (encrypt(body.token.strip() or None), now_iso(), repo_id))
+    if body.language is not None:
+        db.execute("UPDATE repos SET language=?, updated_at=? WHERE id=?", (body.language, now_iso(), repo_id))
     return _public_repo(_repo_or_404(repo_id))
 
 
@@ -265,7 +275,7 @@ def patch_task(task_id: str, body: TaskPatch):
                 sets["started_at"] = ts
         if sets["status"] in ("todo", "in_progress"):
             sets["completed_at"] = None
-        log_event(t["repo_id"], "task_status", f"「{t['title']}」を {sets['status']} に変更 (手動)")
+        log_event(t["repo_id"], "task_status", title=t["title"], status=sets["status"])
     merged = {**t, **sets}
     sets["score"] = compute_score(merged["urgency"], merged["importance"], merged["effort_days"])
     sets["updated_at"] = ts
@@ -334,7 +344,7 @@ async def github_webhook(request: Request, bg: BackgroundTasks,
         raise HTTPException(401, "invalid signature")
 
     if x_github_event == "ping":
-        log_event(repo["id"], "webhook", "Webhook の疎通を確認しました (ping)")
+        log_event(repo["id"], "webhook", "webhook_ping")
         return {"ok": True}
     if x_github_event not in TRIGGER_EVENTS:
         return {"ok": True, "ignored": x_github_event}
@@ -343,21 +353,21 @@ async def github_webhook(request: Request, bg: BackgroundTasks,
     if x_github_event == "push":
         if payload.get("ref") != f"refs/heads/{repo['default_branch']}":
             return {"ok": True, "ignored": "non-default branch"}
-        msg = f"push: {len(payload.get('commits') or [])} commits → {payload.get('after', '')[:7]}"
+        msg = ("webhook_push", {"n": len(payload.get("commits") or []), "sha": payload.get("after", "")[:7]})
     elif x_github_event == "pull_request":
         if action != "closed" or not (payload.get("pull_request") or {}).get("merged"):
             return {"ok": True, "ignored": f"pull_request.{action}"}
-        msg = f"PR #{payload['pull_request']['number']} merged: {payload['pull_request']['title']}"
+        msg = ("webhook_pr", {"number": payload["pull_request"]["number"], "title": payload["pull_request"]["title"]})
     elif x_github_event == "issues":
         if action not in ("opened", "closed", "reopened"):
             return {"ok": True, "ignored": f"issues.{action}"}
-        msg = f"issue #{payload['issue']['number']} {action}: {payload['issue']['title']}"
+        msg = ("webhook_issue", {"number": payload["issue"]["number"], "action": action, "title": payload["issue"]["title"]})
     else:
         if action != "published":
             return {"ok": True, "ignored": f"release.{action}"}
-        msg = f"release published: {payload['release'].get('tag_name')}"
+        msg = ("webhook_release", {"tag": payload["release"].get("tag_name")})
 
-    log_event(repo["id"], "webhook", msg)
+    log_event(repo["id"], "webhook", msg[0], **msg[1])
     started = request_analysis(repo["id"])
     if started:
         bg.add_task(run_analysis, repo["id"], "webhook", False)
@@ -378,7 +388,56 @@ def cron_poll(bg: BackgroundTasks, x_cron_token: str = Header(default="")):
             log.warning("poll failed for %s", r["full_name"], exc_info=True)
             continue
         if head and head != r["last_analyzed_sha"] and request_analysis(r["id"]):
-            log_event(r["id"], "poll", f"新しいコミットを検知: {head[:7]}")
+            log_event(r["id"], "poll", sha=head[:7])
             bg.add_task(run_analysis, r["id"], "poll", False)
             triggered.append(r["full_name"])
     return {"triggered": triggered}
+
+
+# ------------------------------------------------------------------ i18n
+class TranslateReq(BaseModel):
+    entries: dict[str, str]
+
+
+MAX_I18N_ENTRIES = 600
+MAX_I18N_CHARS = 60000
+I18N_CHUNK = 60
+PLACEHOLDER = re.compile(r"\{[a-zA-Z_]+\}")
+
+
+@app.post("/api/i18n/{lang}")
+def translate_ui(lang: str, body: TranslateReq):
+    """英語の UI 文言を Gemini で指定言語に翻訳する. (言語, 原文ハッシュ) 単位で Turso にキャッシュ."""
+    if not re.match(LANG_PATTERN, lang):
+        raise HTTPException(400, "invalid_language")
+    entries = body.entries
+    if len(entries) > MAX_I18N_ENTRIES or sum(len(k) + len(v) for k, v in entries.items()) > MAX_I18N_CHARS:
+        raise HTTPException(413, "too_many_entries")
+    digest = hashlib.sha256(json.dumps(entries, sort_keys=True, ensure_ascii=False).encode()).hexdigest()[:32]
+    cached = db.query_one("SELECT entries_json FROM translations WHERE lang=? AND hash=?", (lang, digest))
+    if cached:
+        return {"lang": lang, "entries": json.loads(cached["entries_json"]), "cached": True}
+    if not settings.gemini_available:
+        return {"lang": lang, "entries": entries, "fallback": True}
+
+    # 1 回で全件訳すと遅いので分割して並列に翻訳する
+    items = list(entries.items())
+    chunks = [dict(items[i:i + I18N_CHUNK]) for i in range(0, len(items), I18N_CHUNK)]
+
+    def translate_chunk(chunk: dict[str, str]) -> dict[str, str]:
+        r = llm.generate_json("You are a professional software localizer.", prompts.translate_prompt(lang, chunk),
+                              TranslationResult, temperature=0.1)
+        return {i.key: i.text for i in r.items}
+
+    got: dict[str, str] = {}
+    with ThreadPoolExecutor(max_workers=6) as ex:
+        for part in ex.map(translate_chunk, chunks):
+            got.update(part)
+    out: dict[str, str] = {}
+    for k, src in entries.items():
+        t = (got.get(k) or "").strip()
+        # 欠落やプレースホルダ崩れは英語にフォールバック
+        out[k] = t if t and sorted(PLACEHOLDER.findall(t)) == sorted(PLACEHOLDER.findall(src)) else src
+    db.execute("INSERT OR REPLACE INTO translations (lang, hash, entries_json, created_at) VALUES (?,?,?,?)",
+               (lang, digest, json.dumps(out, ensure_ascii=False), now_iso()))
+    return {"lang": lang, "entries": out, "cached": False}
