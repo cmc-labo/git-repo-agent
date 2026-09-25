@@ -361,3 +361,9 @@ body { min-height: 100vh; display: flex; flex-direction: column; }
   .topbar { padding: 0 12px; gap: 8px; }
   .brand-text { display: none; }
 }
+
+.privacy-note {
+  margin: 4px 0 0; font-size: 12px; color: var(--muted); background: var(--gray-bg);
+  border-left: 3px solid var(--green); border-radius: 0 var(--radius) var(--radius) 0; padding: 6px 10px;
+}
+[dir="rtl"] .privacy-note { border-left: 0; border-right: 3px solid var(--green); border-radius: var(--radius) 0 0 var(--radius); }

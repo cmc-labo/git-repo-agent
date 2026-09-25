@@ -79,6 +79,7 @@ export default function Home() {
               <div className="faint small">{t("home.tokenNote")}</div>
             </div>
           )}
+          <p className="privacy-note">🔒 {t("home.privacyNote")}</p>
           {error && <div className="err">{error}</div>}
         </form>
       </div>
