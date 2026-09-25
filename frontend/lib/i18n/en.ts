@@ -16,6 +16,7 @@ const en = {
   "top.demoTooltip": "Gemini credentials are not configured, so sample output is shown",
   "top.language": "Language",
 
+  "footer.terms": "Terms of Service",
   "footer.developer": "Developer",
 
   "lp.title": "Choose your language",

@@ -17,6 +17,7 @@ const ja: Messages = {
   "top.demoTooltip": "Gemini の認証情報が未設定のため、サンプル出力で動作しています",
   "top.language": "言語",
 
+  "footer.terms": "利用規約",
   "footer.developer": "開発者",
 
   "lp.title": "言語を選択してください",

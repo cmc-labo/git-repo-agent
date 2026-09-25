@@ -366,3 +366,15 @@ body { min-height: 100vh; display: flex; flex-direction: column; }
 .turnstile:empty { display: none; }
 .verifying { display: inline-flex; align-items: center; gap: 6px; }
 .verifying .spinner { width: 10px; height: 10px; border-width: 1.5px; }
+
+.footer a { color: var(--muted); }
+.footer a:hover { color: var(--green-dark); }
+
+/* ---------- terms ---------- */
+.terms { max-width: 860px; }
+.terms h1 { font-size: 24px; margin: 0 0 4px; }
+.terms h2 { font-size: 16px; margin: 26px 0 8px; padding-bottom: 4px; border-bottom: 1px solid var(--border); }
+.terms p, .terms li { line-height: 1.75; }
+.terms ol { padding-left: 22px; }
+.terms li + li { margin-top: 4px; }
+.terms-back { margin-top: 28px; }
