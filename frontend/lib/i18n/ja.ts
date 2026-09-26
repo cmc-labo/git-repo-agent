@@ -52,7 +52,6 @@ const ja: Messages = {
   "repo.demoReadonly": "これは閲覧専用のデモ分析です。再分析やタスク管理を行うには、ご自身のリポジトリを登録してください。",
   "ev.analysis_interrupted": "前回の分析が中断されたため再実行しています",
   "home.registerTitle": "リポジトリを登録",
-  "home.registerDesc": "登録すると、エージェントがリポジトリを読み込み、競合サービスを調査し、優先度付きのタスクとロードマップを作成します。以降は GitHub の更新 (push / PR マージ / Issue) を検知するたびに自動で再分析します。",
   "home.placeholder": "owner/repo または https://github.com/owner/repo",
   "home.submit": "登録して分析",
   "home.privateToggle": "🔒 private リポジトリの場合",

@@ -68,7 +68,6 @@ export default function Home() {
       <Hero />
       <div className="card" style={{ marginBottom: 24 }}>
         <h2 className="section">{t("home.registerTitle")}</h2>
-        <p className="muted small" style={{ marginTop: -4 }}>{t("home.registerDesc")}</p>
         <form onSubmit={submit} className="stack">
           <div className="row" style={{ flexWrap: "nowrap" }}>
             <input

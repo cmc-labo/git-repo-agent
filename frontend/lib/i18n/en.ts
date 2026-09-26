@@ -51,7 +51,6 @@ const en = {
   "repo.demoReadonly": "This is a read-only demo analysis. Register your own repository to re-analyze and manage tasks.",
   "ev.analysis_interrupted": "The previous analysis was interrupted and is being re-run",
   "home.registerTitle": "Register a repository",
-  "home.registerDesc": "Once registered, the agent reads the repository, researches competing services and creates prioritized tasks and a roadmap. After that it re-analyzes automatically whenever GitHub changes (push / merged PR / issue).",
   "home.placeholder": "owner/repo or https://github.com/owner/repo",
   "home.submit": "Register & analyze",
   "home.privateToggle": "🔒 Private repository?",
