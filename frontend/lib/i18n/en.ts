@@ -34,7 +34,7 @@ const en = {
   "err.repo_exists": "This repository is already registered.",
 
   "hero.title": "Always know what to build next",
-  "hero.lead": "Watches your GitHub repository, analyzes competitors with Gemini, and keeps telling you what to build next — updated on every push.",
+  "hero.lead": "Watches your GitHub repository, analyzes competitors with Gemini, and keeps telling you what to build next. Set up automatic re-analysis (GitHub Webhook) to have it updated on every push.",
   "hero.f1t": "Repo insight",
   "hero.f2t": "Competitor analysis",
   "hero.f3t": "Task priorities",

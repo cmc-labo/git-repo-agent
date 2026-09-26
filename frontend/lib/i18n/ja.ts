@@ -35,7 +35,7 @@ const ja: Messages = {
   "err.repo_exists": "このリポジトリは登録済みです",
 
   "hero.title": "次の開発タスクが自動でいつでもわかる",
-  "hero.lead": "GitHub リポジトリを観測し、vertex-aiが競合を分析して、次にやるべきことを提示。push のたびに自動で更新します。",
+  "hero.lead": "GitHub リポジトリを観測し、vertex-aiが競合を分析して、次にやるべきことを提示。自動再分析の設定 (GitHub Webhook)を行うことで、push のたびに自動で更新します。",
   "hero.f1t": "リポジトリ理解",
   "hero.f2t": "競合分析",
   "hero.f3t": "優先順位付け",
